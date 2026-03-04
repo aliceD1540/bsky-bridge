@@ -2,6 +2,7 @@
 
 import { fetchBlueskyPosts } from './blueskyClient.js';
 import { postToThreads } from './threadsClient.js';
+import { postToMisskey } from './misskeyClient.js';
 import { isPosted, markPosted } from './kvStore.js';
 import { formatPost } from './formatPost.js';
 
@@ -17,11 +18,15 @@ async function handleRequest(event) {
   const env = event?.env || globalThis;
   const BLUESKY_HANDLE = env?.BLUESKY_HANDLE;
   const THREADS_TOKEN = env?.THREADS_TOKEN;
+  const MISSKEY_TOKEN = env?.MISSKEY_TOKEN;
   if (!BLUESKY_HANDLE) {
     return new Response('BLUESKY_HANDLE is not set', { status: 500 });
   }
   if (!THREADS_TOKEN) {
     return new Response('THREADS_TOKEN is not set. Set it via wrangler secret.', { status: 500 });
+  }
+  if (!MISSKEY_TOKEN) {
+    return new Response('MISSKEY_TOKEN is not set. Set it via wrangler secret.', { status: 500 });
   }
   return sync(env);
 }
@@ -29,6 +34,7 @@ async function handleRequest(event) {
 async function sync(env) {
   const BLUESKY_HANDLE = env?.BLUESKY_HANDLE;
   const THREADS_TOKEN = env?.THREADS_TOKEN;
+  const MISSKEY_TOKEN = env?.MISSKEY_TOKEN;
   // 24時間前のISO文字列
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   let posts;
@@ -45,24 +51,23 @@ async function sync(env) {
     const blueskyUrl = `https://bsky.app/profile/${BLUESKY_HANDLE}/post/${postId.split('/').pop()}`;
     const formatted = formatPost({ post, blueskyUrl });
     if (!formatted) continue;
-    // Threads投稿
+    // ThreadsとMisskeyに並行投稿
     try {
-      const res = await postToThreads({
-        text: formatted.text,
-        images: formatted.images,
-        accessToken: THREADS_TOKEN,
-      });
-      if (res.success) {
+      const [threadsRes] = await Promise.all([
+        postToThreads({ text: formatted.text, images: formatted.images, accessToken: THREADS_TOKEN }),
+        postToMisskey({ text: formatted.text, images: formatted.images, token: MISSKEY_TOKEN }),
+      ]);
+      if (threadsRes.success) {
         await markPosted(env, postId, post.createdAt);
-        console.log('Posted to Threads:', postId);
-        return new Response('Posted 1 item to Threads', { status: 200 });
+        console.log('Posted to Threads and Misskey:', postId);
+        return new Response('Posted 1 item to Threads and Misskey', { status: 200 });
       } else {
-        console.error('Threads post failed:', res);
+        console.error('Threads post failed:', threadsRes);
         return new Response('Threads post failed', { status: 500 });
       }
     } catch (e) {
-      console.error('Threads post error:', e);
-      return new Response('Threads post error', { status: 500 });
+      console.error('Post error:', e);
+      return new Response('Post error', { status: 500 });
     }
   }
   console.log('No new posts to publish');
