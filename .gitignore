@@ -1,0 +1,7 @@
+# Cloudflare/Node/一般的な除外
+node_modules/
+.env
+wrangler.local.toml
+.DS_Store
+*.log
+.wrangler/

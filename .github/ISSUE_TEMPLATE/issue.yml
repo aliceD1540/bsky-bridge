@@ -1,0 +1,31 @@
+name: Issue
+description: バグ報告、機能提案、質問など
+labels: []
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 概要
+      description: 何についてのissueか簡潔に説明してください
+      placeholder: 例：サムネイル画像付きで投稿できるようにしたい
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 問題
+      description: 現状の問題点や背景を説明してください
+      placeholder: |
+        例：
+        - サムネイル画像を投稿できないため、内容がわかりづらい
+
+  - type: textarea
+    id: approach
+    attributes:
+      label: 実装方針
+      description: どのように実装・解決すべきか案があれば記載してください
+      placeholder: |
+        例：
+        - Redditから取得しているスレッドの内容にはサムネイル画像が含まれているはず
+        - サムネイル画像が取得できた場合はBlueskyへの投稿時に使用する

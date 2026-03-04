@@ -1,0 +1,13 @@
+{
+  "name": "bsky-bridge",
+  "version": "1.0.0",
+  "description": "BlueskyのポストをThreadsに自動投稿するCloudflare Worker",
+  "main": "src/worker.js",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --config wrangler.toml.local",
+    "deploy": "wrangler deploy"
+  },
+  "author": "project-grimoire.dev",
+  "license": "MIT"
+}
