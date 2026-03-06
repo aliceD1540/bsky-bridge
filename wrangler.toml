@@ -17,7 +17,7 @@ id = "6b7e1498777d4783a8fa9dda02e4d38e"
 [[d1_databases]]
 binding = "DB"
 database_name = "bsky-bridge"
-database_id = "YOUR_D1_DATABASE_ID"
+database_id = "c6ea1c83-3e9e-4359-93a6-e0d140348bf8"
 migrations_dir = "migrations"
 
 [[queues.producers]]
