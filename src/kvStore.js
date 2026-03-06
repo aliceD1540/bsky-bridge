@@ -10,9 +10,11 @@ export async function isPosted(env, postId) {
   return (await env.KV.get(`posted:${postId}`)) !== null;
 }
 
+// posted: エントリは7日後に自動削除（KV無制限肥大化を防ぐ）
+const POSTED_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 export async function markPosted(env, postId, createdAt) {
-  // 投稿済みとしてKVに保存
-  await env.KV.put(`posted:${postId}`, createdAt);
+  await env.KV.put(`posted:${postId}`, createdAt, { expirationTtl: POSTED_TTL_SECONDS });
 }
 
 // Threads アクセストークンのKVストレージ
