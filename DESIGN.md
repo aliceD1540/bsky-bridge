@@ -52,24 +52,4 @@ Threadsは以下の制限を設けているので注意する。
 - KVへの書き込み回数はなるべく抑えること
 - Cloudflare QueuesはAt-Least-Onceデリバリーのため、KVの投稿済みチェックによる冪等性処理が必須
 
-## インフラセットアップ
 
-### D1データベース作成
-
-```bash
-wrangler d1 create bsky-bridge
-```
-
-作成後、`wrangler.toml` の `database_id` を取得したIDに更新する。
-
-### D1マイグレーション実行
-
-```bash
-wrangler d1 migrations apply bsky-bridge
-```
-
-### Queues作成
-
-```bash
-wrangler queues create bsky-bridge-queue
-```
