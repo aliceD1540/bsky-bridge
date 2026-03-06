@@ -13,6 +13,23 @@ async function getUserId(accessToken) {
   return data.id;
 }
 
+// 長期トークンのリフレッシュ（有効期限が近い場合に呼び出す）
+export async function refreshThreadsToken(accessToken) {
+  const res = await fetch(
+    `${THREADS_API}/refresh_access_token?grant_type=th_refresh_token&access_token=${accessToken}`
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Threads token refresh failed: ${res.status} - ${body}`);
+  }
+  const data = await res.json();
+  // data.access_token, data.expires_in (seconds)
+  return {
+    accessToken: data.access_token,
+    expiresIn: data.expires_in,
+  };
+}
+
 async function createContainer({ userId, params, accessToken }) {
   const url = `${THREADS_API}/${userId}/threads`;
   const body = new URLSearchParams({ ...params, access_token: accessToken });

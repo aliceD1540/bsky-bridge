@@ -24,9 +24,9 @@ async function uploadImage(imageUrl, token) {
 export async function postToMisskey({ text, images = [], token }) {
   const fileIds = images.length > 0
     ? await Promise.all(images.map((url) => uploadImage(url, token)))
-    : [];
+    : undefined;
 
-  const body = JSON.stringify({ i: token, text, fileIds });
+  const body = JSON.stringify({ i: token, text, ...(fileIds ? { fileIds } : {}) });
   const res = await fetch(`${MISSKEY_API}/notes/create`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
