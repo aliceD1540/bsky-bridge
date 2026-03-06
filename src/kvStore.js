@@ -10,9 +10,11 @@ export async function isPosted(env, postId) {
   return (await env.KV.get(`posted:${postId}`)) !== null;
 }
 
+// posted: エントリは7日後に自動削除（KV無制限肥大化を防ぐ）
+const POSTED_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 export async function markPosted(env, postId, createdAt) {
-  // 投稿済みとしてKVに保存
-  await env.KV.put(`posted:${postId}`, createdAt);
+  await env.KV.put(`posted:${postId}`, createdAt, { expirationTtl: POSTED_TTL_SECONDS });
 }
 
 // Threads アクセストークンのKVストレージ
@@ -32,4 +34,18 @@ export async function storeThreadsToken(env, token, expiresAt) {
     env.KV.put(THREADS_TOKEN_KEY, token),
     env.KV.put(THREADS_TOKEN_EXPIRY_KEY, expiresAt.toISOString()),
   ]);
+}
+
+// D1: ユーザーごとの前回チェック時刻管理
+export async function getLastPostedAt(env, handle) {
+  const row = await env.DB.prepare('SELECT last_posted_at FROM last_checked WHERE handle = ?')
+    .bind(handle)
+    .first();
+  return row?.last_posted_at || null;
+}
+
+export async function setLastPostedAt(env, handle, lastPostedAt) {
+  await env.DB.prepare('INSERT OR REPLACE INTO last_checked (handle, last_posted_at) VALUES (?, ?)')
+    .bind(handle, lastPostedAt)
+    .run();
 }
