@@ -6,20 +6,21 @@ import { postToMisskey } from './misskeyClient.js';
 import {
   isPosted,
   markPosted,
-  getStoredThreadsToken,
-  storeThreadsToken,
   getLastPostedAt,
   setLastPostedAt,
 } from './kvStore.js';
 import { formatPost } from './formatPost.js';
+import { register, login, logout, verifySession } from './auth.js';
+import { saveSettings, getSettings, getPublicSettings, getAllUserSettings } from './settings.js';
+import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS } from './html.js';
 
 export default {
   async fetch(request, env) {
-    return handleRequest(env);
+    return handleRequest(request, env);
   },
 
   async scheduled(event, env) {
-    await checkAndEnqueue(env);
+    await checkAndEnqueueAll(env);
   },
 
   async queue(batch, env) {
@@ -27,75 +28,175 @@ export default {
   },
 };
 
-// KVに保存されたトークンを優先し、期限が7日以内なら自動リフレッシュする
-async function getEffectiveThreadsToken(env) {
-  const secretToken = env?.THREADS_TOKEN;
-  const { token: kvToken, expiresAt } = await getStoredThreadsToken(env);
+// KVに保存されたトークンを優先し、期限が7日以内なら自動リフレッシュする（マルチユーザー対応）
+async function getEffectiveThreadsToken(env, user) {
+  const { userId, threadsToken, threadsTokenExpiresAt } = user;
+
+  if (!threadsToken) {
+    console.error(`User ${userId}: Threads token not set`);
+    return null;
+  }
 
   const now = new Date();
-  const activeToken = kvToken || secretToken;
+  const expiresAt = threadsTokenExpiresAt ? new Date(threadsTokenExpiresAt) : null;
 
-  if (kvToken && expiresAt) {
+  if (expiresAt) {
     const daysUntilExpiry = (expiresAt - now) / (1000 * 60 * 60 * 24);
 
     if (daysUntilExpiry <= 0) {
-      // 期限切れ：secretTokenにフォールバックしつつ警告
-      console.error('Stored Threads token has expired. Please set a new THREADS_TOKEN secret.');
-      return secretToken;
+      console.error(`User ${userId}: Threads token has expired`);
+      return null;
     }
 
     if (daysUntilExpiry <= 7) {
       // 7日以内に失効するためリフレッシュ
       try {
-        const { accessToken: newToken, expiresIn } = await refreshThreadsToken(kvToken);
+        const { accessToken: newToken, expiresIn } = await refreshThreadsToken(threadsToken);
         const newExpiry = new Date(now.getTime() + expiresIn * 1000);
-        await storeThreadsToken(env, newToken, newExpiry);
-        console.log('Threads token refreshed, expires:', newExpiry.toISOString());
+        
+        // 設定を更新
+        await saveSettings(env, userId, {
+          threadsToken: newToken,
+          threadsTokenExpiresAt: newExpiry.toISOString(),
+        });
+        
+        console.log(`User ${userId}: Threads token refreshed, expires:`, newExpiry.toISOString());
         return newToken;
       } catch (e) {
-        console.error('Failed to refresh Threads token:', e);
-        return kvToken;
+        console.error(`User ${userId}: Failed to refresh Threads token:`, e);
+        return threadsToken;
       }
     }
 
-    return kvToken;
+    return threadsToken;
   }
 
-  // KVにトークンがない場合はsecretを初期登録（60日の有効期限を仮定）
-  if (secretToken) {
-    const initialExpiry = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
-    await storeThreadsToken(env, secretToken, initialExpiry).catch(() => {});
-  }
-  return activeToken;
+  return threadsToken;
 }
 
-async function handleRequest(env) {
-  if (!env?.BLUESKY_HANDLE) {
-    return new Response('BLUESKY_HANDLE is not set', { status: 500 });
+async function handleRequest(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+
+  // API エンドポイント
+  if (path === '/api/register' && request.method === 'POST') {
+    const { email, password } = await request.json();
+    const result = await register(env, email, password);
+    return new Response(JSON.stringify(result), {
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
-  if (!env?.THREADS_TOKEN) {
-    return new Response('THREADS_TOKEN is not set. Set it via wrangler secret.', { status: 500 });
+
+  if (path === '/api/login' && request.method === 'POST') {
+    const { email, password } = await request.json();
+    const result = await login(env, email, password);
+    return new Response(JSON.stringify(result), {
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
-  if (!env?.MISSKEY_TOKEN) {
-    return new Response('MISSKEY_TOKEN is not set. Set it via wrangler secret.', { status: 500 });
+
+  if (path === '/api/logout' && request.method === 'POST') {
+    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const result = await logout(env, sessionToken);
+    return new Response(JSON.stringify(result), {
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
-  return checkAndEnqueue(env);
+
+  if (path === '/api/settings' && request.method === 'GET') {
+    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const session = await verifySession(env, sessionToken);
+    if (!session) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const settings = await getPublicSettings(env, session.userId);
+    return new Response(JSON.stringify(settings || {}), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (path === '/api/settings' && request.method === 'POST') {
+    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const session = await verifySession(env, sessionToken);
+    if (!session) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const settings = await request.json();
+    const result = await saveSettings(env, session.userId, settings);
+    return new Response(JSON.stringify(result), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // 静的ファイル配信（frontend）
+  if (path === '/' || path === '/login' || path === '/register' || path === '/settings') {
+    return serveHTML(env, path);
+  }
+
+  return new Response('Not Found', { status: 404 });
 }
 
-// cronハンドラ: 新規ポストを検出してキューに追加する
-async function checkAndEnqueue(env) {
-  const BLUESKY_HANDLE = env?.BLUESKY_HANDLE;
+function serveHTML(env, path) {
+  const pages = {
+    '/': HTML_INDEX,
+    '/login': HTML_LOGIN,
+    '/register': HTML_REGISTER,
+    '/settings': HTML_SETTINGS,
+  };
+  
+  const html = pages[path] || pages['/'];
+  return new Response(html, {
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
+}
 
-  // D1から前回チェック時刻を取得（未設定の場合は24時間前にフォールバック）
-  const lastPostedAt = await getLastPostedAt(env, BLUESKY_HANDLE);
-  const since = lastPostedAt || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+// cronハンドラ: 全ユーザーの新規ポストを検出してキューに追加する
+async function checkAndEnqueueAll(env) {
+  const userSettings = await getAllUserSettings(env);
+
+  if (userSettings.length === 0) {
+    console.log('No users with Bluesky settings');
+    return new Response('No users to check', { status: 200 });
+  }
+
+  let totalEnqueued = 0;
+
+  for (const user of userSettings) {
+    try {
+      const count = await checkAndEnqueueForUser(env, user);
+      totalEnqueued += count;
+    } catch (e) {
+      console.error(`Error checking posts for user ${user.userId}:`, e);
+    }
+  }
+
+  console.log(`Total enqueued posts: ${totalEnqueued}`);
+  return new Response(`Enqueued ${totalEnqueued} posts`, { status: 200 });
+}
+
+async function checkAndEnqueueForUser(env, user) {
+  const { userId, userCreatedAt, blueskyHandle } = user;
+
+  if (!blueskyHandle) {
+    return 0;
+  }
+
+  // D1から前回チェック時刻を取得（未設定の場合はユーザー登録日時にフォールバック）
+  const lastPostedAt = await getLastPostedAt(env, userId);
+  const since = lastPostedAt || userCreatedAt;
 
   let posts;
   try {
-    posts = await fetchBlueskyPosts({ handle: BLUESKY_HANDLE, since });
+    posts = await fetchBlueskyPosts({ handle: blueskyHandle, since });
   } catch (e) {
-    console.error('Bluesky fetch error:', e);
-    return new Response('Bluesky fetch error', { status: 500 });
+    console.error(`Bluesky fetch error for user ${userId}:`, e);
+    return 0;
   }
 
   // 投稿済みのポストを除外
@@ -108,42 +209,56 @@ async function checkAndEnqueue(env) {
   }
 
   if (newPosts.length === 0) {
-    console.log('No new posts to enqueue');
-    return new Response('No new posts to enqueue', { status: 200 });
+    return 0;
   }
 
   // 古い順にキューへ追加（fetchBlueskyPostsは昇順ソート済み）
   for (const post of newPosts) {
-    await env.QUEUE.send({ postUri: post.uri, handle: BLUESKY_HANDLE });
+    await env.QUEUE.send({ 
+      postUri: post.uri, 
+      userId,
+      handle: blueskyHandle 
+    });
   }
 
   // 最新ポストの作成時刻をD1に保存（次回cronのsince基準点）
   const newestPost = newPosts[newPosts.length - 1];
-  await setLastPostedAt(env, BLUESKY_HANDLE, newestPost.createdAt);
+  await setLastPostedAt(env, userId, newestPost.createdAt);
 
-  console.log(`Enqueued ${newPosts.length} posts, last_posted_at: ${newestPost.createdAt}`);
-  return new Response(`Enqueued ${newPosts.length} posts`, { status: 200 });
+  console.log(`User ${userId}: Enqueued ${newPosts.length} posts, last_posted_at: ${newestPost.createdAt}`);
+  return newPosts.length;
 }
 
 // queueハンドラ: キューからポストを取り出してThreads/Misskeyに投稿する
 async function handleQueue(batch, env) {
-  const MISSKEY_TOKEN = env?.MISSKEY_TOKEN;
-  const THREADS_TOKEN = await getEffectiveThreadsToken(env);
-
-  if (!THREADS_TOKEN) {
-    console.error('THREADS_TOKEN is not set');
-    // メッセージを全てretryして次回に再試行
-    for (const message of batch.messages) message.retry();
-    return;
-  }
-
   for (const message of batch.messages) {
-    const { postUri, handle } = message.body;
+    const { postUri, userId, handle } = message.body;
 
     // 冪等性チェック（キューのat-least-once配信に対応）
     if (await isPosted(env, postUri)) {
       console.log('Already posted, skipping:', postUri);
       message.ack();
+      continue;
+    }
+
+    // ユーザー設定を取得
+    const userSettings = await getSettings(env, userId);
+    if (!userSettings) {
+      console.error(`User ${userId}: Settings not found`);
+      message.ack();
+      continue;
+    }
+
+    const MISSKEY_TOKEN = userSettings.misskeyToken;
+    const THREADS_TOKEN = await getEffectiveThreadsToken(env, {
+      userId,
+      threadsToken: userSettings.threadsToken,
+      threadsTokenExpiresAt: userSettings.threadsTokenExpiresAt,
+    });
+
+    if (!THREADS_TOKEN) {
+      console.error(`User ${userId}: THREADS_TOKEN is not set`);
+      message.retry();
       continue;
     }
 
@@ -175,21 +290,27 @@ async function handleQueue(batch, env) {
     }
 
     try {
-      const [threadsRes] = await Promise.all([
+      const promises = [
         postToThreads({ text: formatted.text, images: formatted.images, accessToken: THREADS_TOKEN }),
-        postToMisskey({ text: formatted.text, images: formatted.images, token: MISSKEY_TOKEN }),
-      ]);
+      ];
+
+      // Misskeyトークンがある場合のみ投稿
+      if (MISSKEY_TOKEN) {
+        promises.push(postToMisskey({ text: formatted.text, images: formatted.images, token: MISSKEY_TOKEN }));
+      }
+
+      const [threadsRes] = await Promise.all(promises);
 
       if (threadsRes.success) {
         await markPosted(env, postUri, post.createdAt);
-        console.log('Posted to Threads and Misskey:', postUri);
+        console.log(`User ${userId}: Posted to Threads${MISSKEY_TOKEN ? ' and Misskey' : ''}:`, postUri);
         message.ack();
       } else {
-        console.error('Threads post failed:', threadsRes);
+        console.error(`User ${userId}: Threads post failed:`, threadsRes);
         message.retry();
       }
     } catch (e) {
-      console.error('Post error:', e);
+      console.error(`User ${userId}: Post error:`, e);
       message.retry();
     }
   }
