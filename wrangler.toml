@@ -14,6 +14,22 @@ BLUESKY_HANDLE = "project-grimoire.dev"
 binding = "KV"
 id = "6b7e1498777d4783a8fa9dda02e4d38e"
 
+[[d1_databases]]
+binding = "DB"
+database_name = "bsky-bridge"
+database_id = "YOUR_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[[queues.producers]]
+binding = "QUEUE"
+queue = "bsky-bridge-queue"
+
+[[queues.consumers]]
+queue = "bsky-bridge-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+
 [observability]
 	[observability.logs]
 	enabled = true

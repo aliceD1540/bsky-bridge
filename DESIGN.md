@@ -2,21 +2,31 @@
 
 ## 概要
 
-Blueskyの特定のアカウントのポストをThreadsに自動で投稿するBot
+Blueskyの特定のアカウントのポストをThreadsとMisskey.ioに自動で投稿するBot
 
 ## 動作環境
 
-CloudflareのPages, Worker, KV, D1
+CloudflareのWorker, KV, D1, Queues
 
 ## 処理の流れ
 
-1. 5分おきにWorkerが起動
-2. WorkerがBlueskyのAPIを呼び出し、特定のアカウントの過去24時間のポストを取得
-3. 取得したポストが投稿済みではなかった場合、ThreadsのAPIを呼び出してポスト内容を投稿
-4. 投稿後、チェック日時（Blueskyの対象ポストの作成日時）をKVに上書き保存
-  - 投稿対象がなかった場合は、チェック日時を更新せずに終了
+### cron（5分おき）
 
-### ポスト内容
+1. D1から前回チェック時刻を取得（未設定の場合は24時間前にフォールバック）
+2. WorkerがBlueskyのAPIを呼び出し、前回チェック時刻以降の新規ポストを取得
+3. KVで投稿済みチェックを行い、未投稿のポストのみを対象にする
+4. 新規ポストが存在する場合、古い順にポストのURIをCloudflare Queuesに追加
+5. 最新ポストの作成時刻をD1に「前回チェック時刻」として保存
+
+### queue（キュー消費）
+
+1. キューからポストURIを取得
+2. KVで投稿済みチェック（冪等性保証）
+3. BlueskyのAPIを呼び出して対象ポストの内容を取得
+4. ThreadsとMisskey.ioに並行投稿
+5. 投稿成功後、KVに投稿済みとして記録
+
+## ポスト内容
 
 - テキスト内容が500文字を超える場合は、400文字に切り詰めて「全文はこちら：{Blueskyの対象ポストURL}」を末尾に付ける
 - カードがついている場合はそのURLを投稿内容に含める
@@ -26,7 +36,7 @@ CloudflareのPages, Worker, KV, D1
 - 引用だった場合は、「{投稿したテキスト} {引用ポストのURL}」で投稿する
 - リプライの場合は無視する
 
-### 注意
+## 注意
 
 Threadsは以下の制限を設けているので注意する。
 
@@ -36,7 +46,30 @@ Threadsは以下の制限を設けているので注意する。
 - 画像は最大10枚まで
   - 運用上到達しないためログにエラーだけ出力して終了する
 
-### 補足
+## 補足
 
 - Blueskyの検索APIは時折直近のポストを取得できないことがあるため、24時間以内のポストを対象にした上でThreadsへ投稿済みポストを除外する仕様としている
 - KVへの書き込み回数はなるべく抑えること
+- Cloudflare QueuesはAt-Least-Onceデリバリーのため、KVの投稿済みチェックによる冪等性処理が必須
+
+## インフラセットアップ
+
+### D1データベース作成
+
+```bash
+wrangler d1 create bsky-bridge
+```
+
+作成後、`wrangler.toml` の `database_id` を取得したIDに更新する。
+
+### D1マイグレーション実行
+
+```bash
+wrangler d1 migrations apply bsky-bridge
+```
+
+### Queues作成
+
+```bash
+wrangler queues create bsky-bridge-queue
+```

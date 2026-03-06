@@ -81,3 +81,16 @@ export async function fetchBlueskyPosts({ handle, since }) {
     .filter((post) => post.createdAt && new Date(post.createdAt) > new Date(since))
     .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 }
+
+export async function fetchBlueskyPostByUri(uri) {
+  const url = `${BLUESKY_API_ENDPOINT}/app.bsky.feed.getPosts?uris[]=${encodeURIComponent(uri)}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Bluesky fetch post failed: ${res.status} ${res.statusText} - ${body}`);
+  }
+  const data = await res.json();
+  const posts = data.posts || [];
+  if (posts.length === 0) return null;
+  return normalizePost({ post: posts[0] });
+}
