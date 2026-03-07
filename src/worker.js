@@ -10,7 +10,7 @@ import {
   setLastPostedAt,
 } from './kvStore.js';
 import { formatPost } from './formatPost.js';
-import { register, login, logout, verifySession } from './auth.js';
+import { register, login, logout, verifySession, changePassword } from './auth.js';
 import { saveSettings, getSettings, getPublicSettings, getAllUserSettings } from './settings.js';
 import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS } from './html.js';
 
@@ -99,6 +99,16 @@ async function handleRequest(request, env) {
     const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
     const result = await logout(env, sessionToken);
     return new Response(JSON.stringify(result), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (path === '/api/change-password' && request.method === 'POST') {
+    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const { currentPassword, newPassword } = await request.json();
+    const result = await changePassword(env, sessionToken, currentPassword, newPassword);
+    return new Response(JSON.stringify(result), {
+      status: result.success ? 200 : (result.error === 'Unauthorized' ? 401 : 400),
       headers: { 'Content-Type': 'application/json' },
     });
   }

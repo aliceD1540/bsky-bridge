@@ -86,6 +86,38 @@ export async function logout(env, sessionToken) {
   return { success: true };
 }
 
+// パスワード変更
+export async function changePassword(env, sessionToken, currentPassword, newPassword) {
+  if (!currentPassword || !newPassword) {
+    return { success: false, error: 'Current password and new password are required' };
+  }
+
+  const session = await verifySession(env, sessionToken);
+  if (!session) {
+    return { success: false, error: 'Unauthorized' };
+  }
+
+  const user = await env.DB.prepare('SELECT id, password_hash FROM users WHERE id = ?')
+    .bind(session.userId)
+    .first();
+
+  if (!user) {
+    return { success: false, error: 'User not found' };
+  }
+
+  const valid = await verifyPassword(currentPassword, user.password_hash);
+  if (!valid) {
+    return { success: false, error: 'Current password is incorrect' };
+  }
+
+  const newPasswordHash = await hashPassword(newPassword);
+  await env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+    .bind(newPasswordHash, user.id)
+    .run();
+
+  return { success: true };
+}
+
 // セッション検証
 export async function verifySession(env, sessionToken) {
   if (!sessionToken) {
