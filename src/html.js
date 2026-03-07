@@ -62,7 +62,7 @@ export const HTML_INDEX = `
 </html>
 `;
 
-export const HTML_LOGIN = \`
+export const HTML_LOGIN = `
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -181,9 +181,9 @@ export const HTML_LOGIN = \`
   </script>
 </body>
 </html>
-\`;
+`;
 
-export const HTML_REGISTER = \`
+export const HTML_REGISTER = `
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -302,9 +302,9 @@ export const HTML_REGISTER = \`
   </script>
 </body>
 </html>
-\`;
+`;
 
-export const HTML_SETTINGS = \`
+export const HTML_SETTINGS = `
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -505,4 +505,4 @@ export const HTML_SETTINGS = \`
   </script>
 </body>
 </html>
-\`;
+`;
