@@ -7,9 +7,6 @@ workers_dev = true
 [triggers]
 crons = ["*/5 * * * *"]
 
-[vars]
-BLUESKY_HANDLE = "project-grimoire.dev"
-
 [[kv_namespaces]]
 binding = "KV"
 id = "6b7e1498777d4783a8fa9dda02e4d38e"
