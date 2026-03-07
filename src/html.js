@@ -365,6 +365,12 @@ export const HTML_SETTINGS = `
     h3:first-of-type {
       margin-top: 0;
     }
+    h4 {
+      color: #666;
+      font-size: 14px;
+      margin-top: 16px;
+      margin-bottom: 10px;
+    }
     .form-group {
       margin-bottom: 16px;
     }
@@ -434,29 +440,31 @@ export const HTML_SETTINGS = `
     <div class="card">
       <h2>投稿設定</h2>
       <form id="settingsForm">
-        <h3>Bluesky</h3>
+        <h3>転記元</h3>
+        <h4>Bluesky</h4>
         <div class="form-group">
           <label for="blueskyHandle">アカウント名</label>
           <input type="text" id="blueskyHandle" placeholder="example.bsky.social">
         </div>
         <div class="form-group">
           <label for="blueskyPassword">アプリパスワード</label>
-          <input type="password" id="blueskyPassword" placeholder="アプリパスワードを入力">
-          <div class="info">Blueskyの設定からアプリパスワードを生成してください</div>
+          <input type="password" id="blueskyPassword" placeholder="変更しない場合は空欄のまま">
+          <div class="info">Blueskyの設定からアプリパスワードを生成してください。</div>
         </div>
 
-        <h3>Misskey.io</h3>
+        <h3>転記先</h3>
+        <h4>Misskey.io</h4>
         <div class="form-group">
           <label for="misskeyToken">アクセストークン</label>
-          <input type="password" id="misskeyToken" placeholder="Misskeyのアクセストークンを入力">
-          <div class="info">Misskey.ioの設定からアクセストークンを生成してください</div>
+          <input type="password" id="misskeyToken" placeholder="変更しない場合は空欄のまま">
+          <div class="info">Misskey.ioの設定から「ドライブを操作する」「ノートを作成・削除する」の権限を持つアクセストークンを生成してください。</div>
         </div>
 
-        <h3>Threads</h3>
+        <h4>Threads</h4>
         <div class="form-group">
           <label for="threadsToken">アクセストークン</label>
-          <input type="password" id="threadsToken" placeholder="Threadsのアクセストークンを入力">
-          <div class="info">Threads APIのアクセストークンを入力してください</div>
+          <input type="password" id="threadsToken" placeholder="変更しない場合は空欄のまま">
+          <div class="info">Threads APIのアクセストークンを入力してください。</div>
         </div>
 
         <div class="actions">

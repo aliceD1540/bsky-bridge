@@ -12,25 +12,36 @@ export async function saveSettings(env, userId, settings) {
     threadsTokenExpiresAt,
   } = settings;
 
-  // 暗号化
-  const blueskyPasswordEnc = blueskyPassword
-    ? await encrypt(blueskyPassword, env)
-    : { cipherText: null, iv: null };
-  const misskeyTokenEnc = misskeyToken
-    ? await encrypt(misskeyToken, env)
-    : { cipherText: null, iv: null };
-  const threadsTokenEnc = threadsToken
-    ? await encrypt(threadsToken, env)
-    : { cipherText: null, iv: null };
-
   const now = new Date().toISOString();
 
-  // 既存設定の確認
-  const existing = await env.DB.prepare('SELECT user_id FROM user_settings WHERE user_id = ?')
+  // 既存設定の確認（空欄フィールドは既存値を維持するために全カラム取得）
+  const existing = await env.DB.prepare(`
+    SELECT
+      bluesky_handle,
+      bluesky_password_encrypted,
+      bluesky_password_iv,
+      misskey_token_encrypted,
+      misskey_token_iv,
+      threads_token_encrypted,
+      threads_token_iv,
+      threads_token_expires_at
+    FROM user_settings WHERE user_id = ?
+  `)
     .bind(userId)
     .first();
 
   if (existing) {
+    // 空欄の場合は既存の暗号化済み値をそのまま使用し、入力がある場合のみ再暗号化
+    const blueskyPasswordEnc = blueskyPassword
+      ? await encrypt(blueskyPassword, env)
+      : { cipherText: existing.bluesky_password_encrypted, iv: existing.bluesky_password_iv };
+    const misskeyTokenEnc = misskeyToken
+      ? await encrypt(misskeyToken, env)
+      : { cipherText: existing.misskey_token_encrypted, iv: existing.misskey_token_iv };
+    const threadsTokenEnc = threadsToken
+      ? await encrypt(threadsToken, env)
+      : { cipherText: existing.threads_token_encrypted, iv: existing.threads_token_iv };
+
     // 更新
     await env.DB.prepare(`
       UPDATE user_settings SET
@@ -46,19 +57,29 @@ export async function saveSettings(env, userId, settings) {
       WHERE user_id = ?
     `)
       .bind(
-        blueskyHandle || null,
+        blueskyHandle || existing.bluesky_handle || null,
         blueskyPasswordEnc.cipherText,
         blueskyPasswordEnc.iv,
         misskeyTokenEnc.cipherText,
         misskeyTokenEnc.iv,
         threadsTokenEnc.cipherText,
         threadsTokenEnc.iv,
-        threadsTokenExpiresAt || null,
+        threadsTokenExpiresAt || existing.threads_token_expires_at || null,
         now,
         userId
       )
       .run();
   } else {
+    // 新規作成時は暗号化
+    const blueskyPasswordEnc = blueskyPassword
+      ? await encrypt(blueskyPassword, env)
+      : { cipherText: null, iv: null };
+    const misskeyTokenEnc = misskeyToken
+      ? await encrypt(misskeyToken, env)
+      : { cipherText: null, iv: null };
+    const threadsTokenEnc = threadsToken
+      ? await encrypt(threadsToken, env)
+      : { cipherText: null, iv: null };
     // 新規作成
     await env.DB.prepare(`
       INSERT INTO user_settings (
