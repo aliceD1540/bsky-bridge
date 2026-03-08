@@ -413,14 +413,16 @@ async function checkAndEnqueueForUser(env, user) {
   }
 
   // 古い順にキューへ追加（fetchBlueskyPostsは昇順ソート済み）
-  for (const post of newPosts) {
+  // 投稿先APIのレート制限対策として5秒ずつずらして配信する
+  for (let i = 0; i < newPosts.length; i++) {
+    const post = newPosts[i];
     await env.QUEUE.send({ 
       postUri: post.uri, 
       userId,
       handle: blueskyHandle,
       postType: post.type,
       repostUrl: post.repostUrl || null,
-    });
+    }, { delaySeconds: i * 5 });
   }
 
   // 最新ポストの作成時刻をD1に保存（次回cronのsince基準点）
