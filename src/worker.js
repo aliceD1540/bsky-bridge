@@ -157,6 +157,8 @@ async function handleRequest(request, env) {
       return new Response(JSON.stringify(result), { headers });
     } catch (err) {
       console.error('Login error:', err);
+      // サーバー側エラーはユーザーの責任ではないためカウントをリセット
+      await resetRateLimit(env, `login:${ip}`);
       return new Response(JSON.stringify({ error: 'Internal server error' }), {
         status: 500, headers: { 'Content-Type': 'application/json' },
       });
