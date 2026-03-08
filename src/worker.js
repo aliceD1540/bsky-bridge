@@ -222,15 +222,29 @@ async function handleRequest(request, env) {
     }
     const settings = await request.json();
 
-    // blueskyHandleとblueskyPasswordが両方指定された場合は認証検証
-    if (settings.blueskyHandle && settings.blueskyPassword) {
-      try {
-        await verifyBlueskyCredentials(settings.blueskyHandle, settings.blueskyPassword);
-      } catch (e) {
-        return new Response(JSON.stringify({ error: 'Bluesky認証に失敗しました。ハンドルとアプリパスワードを確認してください。' }), {
+    // Bluesky認証検証:
+    // - ハンドルが変更される場合はパスワード必須
+    // - ハンドルが変わらなくてもパスワードが指定された場合は検証
+    if (settings.blueskyHandle) {
+      const existing = await getPublicSettings(env, session.userId);
+      const handleChanged = settings.blueskyHandle !== existing?.blueskyHandle;
+
+      if (handleChanged && !settings.blueskyPassword) {
+        return new Response(JSON.stringify({ error: 'ハンドルを変更する場合はアプリパスワードの入力が必要です。' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
+      }
+
+      if (settings.blueskyPassword) {
+        try {
+          await verifyBlueskyCredentials(settings.blueskyHandle, settings.blueskyPassword);
+        } catch (e) {
+          return new Response(JSON.stringify({ error: 'Bluesky認証に失敗しました。ハンドルとアプリパスワードを確認してください。' }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
       }
     }
 
