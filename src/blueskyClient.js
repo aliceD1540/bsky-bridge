@@ -76,6 +76,10 @@ function normalizePost(item, selfHandle) {
     }
   }
 
+  // センシティブラベル
+  const SENSITIVE_LABELS = new Set(['porn', 'sexual', 'nudity', 'graphic-media', 'gore']);
+  const labels = (post.labels || []).map((l) => l.val).filter((v) => SENSITIVE_LABELS.has(v));
+
   return {
     uri: post.uri,
     createdAt: record.createdAt,
@@ -83,6 +87,7 @@ function normalizePost(item, selfHandle) {
     reply: record.reply || null,
     type,
     images,
+    labels,
     cardUrl,
     quotedUrl,
   };

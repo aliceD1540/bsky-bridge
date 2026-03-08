@@ -9,6 +9,7 @@ export function formatPost({ post, blueskyUrl }) {
   let text = post.text || '';
   let cardUrl = post.cardUrl;
   let images = post.images || [];
+  const labels = post.labels || [];
   let type = post.type || '';
   let quotedUrl = post.quotedUrl;
   let repostUrl = post.repostUrl;
@@ -33,6 +34,12 @@ export function formatPost({ post, blueskyUrl }) {
   // 引用
   if (type === 'quote' && quotedUrl) {
     text = `${text} ${quotedUrl}`;
+  }
+
+  // センシティブラベルがある場合、画像を転載せずBlueskyの元ポストへのリンクに差し替え
+  if (labels.length > 0 && images.length > 0) {
+    text = `${text}\n⚠️ このポストにはセンシティブなラベル（${labels.join(', ')}）が付いています。\n画像は転載されません。元ポスト: ${blueskyUrl}`.trim();
+    images = [];
   }
 
   // Blueskyの仕様上、画像は最大4枚
