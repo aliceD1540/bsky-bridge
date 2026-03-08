@@ -681,6 +681,7 @@ export const HTML_SETTINGS = `
             <button type="button" id="threadsDisconnectBtn" class="btn-danger">Threadsの連携を解除</button>
           </div>
           <div id="threadsDisconnected" style="display:none">
+            <p id="threadsExpiredMsg" class="error" style="display:none">Threadsトークンの有効期限が切れています。再度連携してください。</p>
             <button type="button" id="threadsConnectBtn">Threadsに接続</button>
           </div>
         </div>
@@ -757,6 +758,7 @@ export const HTML_SETTINGS = `
       const connectedDiv = document.getElementById('threadsConnected');
       const disconnectedDiv = document.getElementById('threadsDisconnected');
       const expiryP = document.getElementById('threadsExpiry');
+      const expiredMsg = document.getElementById('threadsExpiredMsg');
 
       statusDiv.style.display = 'none';
       if (data.hasThreadsToken) {
@@ -771,6 +773,9 @@ export const HTML_SETTINGS = `
       } else {
         connectedDiv.style.display = 'none';
         disconnectedDiv.style.display = 'block';
+        // トークンなし＋過去の有効期限あり → 期限切れで自動削除された状態
+        const isExpired = data.threadsTokenExpiresAt && new Date(data.threadsTokenExpiresAt) < new Date();
+        expiredMsg.style.display = isExpired ? 'block' : 'none';
       }
     }
 

@@ -78,7 +78,9 @@ async function getEffectiveThreadsToken(env, user) {
     const daysUntilExpiry = (expiresAt - now) / (1000 * 60 * 60 * 24);
 
     if (daysUntilExpiry <= 0) {
-      console.error(`User ${userId}: Threads token has expired`);
+      console.error(`User ${userId}: Threads token has expired, clearing token`);
+      // トークンのみ削除。threadsTokenExpiresAtは残し、設定画面で期限切れを検出できるようにする
+      await saveSettings(env, userId, { threadsToken: null });
       return null;
     }
 
