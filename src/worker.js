@@ -417,7 +417,9 @@ async function checkAndEnqueueForUser(env, user) {
     await env.QUEUE.send({ 
       postUri: post.uri, 
       userId,
-      handle: blueskyHandle 
+      handle: blueskyHandle,
+      postType: post.type,
+      repostUrl: post.repostUrl || null,
     });
   }
 
@@ -432,7 +434,7 @@ async function checkAndEnqueueForUser(env, user) {
 // queueハンドラ: キューからポストを取り出してThreads/Misskeyに投稿する
 async function handleQueue(batch, env) {
   for (const message of batch.messages) {
-    const { postUri, userId, handle } = message.body;
+    const { postUri, userId, handle, postType, repostUrl } = message.body;
 
     // 冪等性チェック（キューのat-least-once配信に対応）
     if (await isPosted(env, postUri)) {
@@ -477,6 +479,10 @@ async function handleQueue(batch, env) {
       message.ack();
       continue;
     }
+
+    // fetchBlueskyPostByUri は reason を持たないため、キューに保存したtype/repostUrlで補完
+    if (postType) post.type = postType;
+    if (repostUrl) post.repostUrl = repostUrl;
 
     const rkey = postUri.split('/').pop();
     const blueskyUrl = `https://bsky.app/profile/${handle}/post/${rkey}`;
