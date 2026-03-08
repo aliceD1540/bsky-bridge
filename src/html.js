@@ -161,6 +161,7 @@ const MODAL_SCRIPT = `
   function closeModal(id) {
     document.getElementById(id).classList.remove('open');
     document.body.style.overflow = '';
+    history.replaceState(null, '', location.pathname);
   }
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', e => {
@@ -172,6 +173,10 @@ const MODAL_SCRIPT = `
       document.querySelectorAll('.modal-overlay.open').forEach(m => closeModal(m.id));
     }
   });
+  // URLハッシュによるモーダル自動オープン（例: /login#terms, /login#howto）
+  const hashMap = { terms: 'termsModal', howto: 'howtoModal' };
+  const hash = location.hash.replace('#', '');
+  if (hashMap[hash]) openModal(hashMap[hash]);
 `;
 
 export const HTML_INDEX = `
