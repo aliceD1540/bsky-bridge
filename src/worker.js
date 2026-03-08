@@ -1,6 +1,6 @@
 // Cloudflare Worker entry point
 
-import { fetchBlueskyPosts, fetchBlueskyPostByUri } from './blueskyClient.js';
+import { fetchBlueskyPosts, fetchBlueskyPostByUri, verifyBlueskyCredentials } from './blueskyClient.js';
 import { postToThreads, refreshThreadsToken, buildThreadsAuthUrl, exchangeCodeForToken, exchangeForLongLivedToken } from './threadsClient.js';
 import { postToMisskey } from './misskeyClient.js';
 import {
@@ -221,6 +221,19 @@ async function handleRequest(request, env) {
       });
     }
     const settings = await request.json();
+
+    // blueskyHandleとblueskyPasswordが両方指定された場合は認証検証
+    if (settings.blueskyHandle && settings.blueskyPassword) {
+      try {
+        await verifyBlueskyCredentials(settings.blueskyHandle, settings.blueskyPassword);
+      } catch (e) {
+        return new Response(JSON.stringify({ error: 'Bluesky認証に失敗しました。ハンドルとアプリパスワードを確認してください。' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     const result = await saveSettings(env, session.userId, settings);
     return new Response(JSON.stringify(result), {
       headers: { 'Content-Type': 'application/json' },

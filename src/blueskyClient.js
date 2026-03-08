@@ -2,6 +2,25 @@
 // 参考: https://github.com/bluesky-social/atproto
 
 const BLUESKY_API_ENDPOINT = 'https://public.api.bsky.app/xrpc';
+const BLUESKY_AUTH_ENDPOINT = 'https://bsky.social/xrpc';
+
+// アプリパスワードでログインし、ハンドルの所有確認を行う
+// 認証失敗時は例外をスロー
+export async function verifyBlueskyCredentials(handle, password) {
+  const res = await fetch(`${BLUESKY_AUTH_ENDPOINT}/com.atproto.server.createSession`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier: handle, password }),
+  });
+  if (!res.ok) {
+    throw new Error(`Bluesky authentication failed: ${res.status}`);
+  }
+  const data = await res.json();
+  // レスポンスのhandleと入力のhandleを照合してなりすましを防ぐ
+  if (data.handle !== handle) {
+    throw new Error(`Handle mismatch: expected ${handle}, got ${data.handle}`);
+  }
+}
 
 function normalizePost(item, selfHandle) {
   const post = item.post;
