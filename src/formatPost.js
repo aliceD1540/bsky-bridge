@@ -35,11 +35,8 @@ export function formatPost({ post, blueskyUrl }) {
     text = `${text} ${quotedUrl}`;
   }
 
-  // 画像10枚超はエラーログを出力して終了（運用上到達しない想定）
-  if (images.length > 10) {
-    console.error('Too many images (max 10):', images.length);
-    return null;
-  }
+  // Blueskyの仕様上、画像は最大4枚
+  images = images.slice(0, 4);
 
   return { text, images };
 }
