@@ -412,6 +412,28 @@ export const HTML_SETTINGS = `
     .btn-logout:hover {
       background: #56646f;
     }
+    .btn-danger {
+      background: #e0245e;
+    }
+    .btn-danger:hover {
+      background: #b81d4e;
+    }
+    .card-danger {
+      border: 1px solid #e0245e;
+    }
+    .card-danger h2 {
+      color: #e0245e;
+    }
+    .danger-description {
+      color: #657786;
+      font-size: 0.9em;
+      margin-bottom: 1rem;
+    }
+    .right-column {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
     .success {
       color: #17bf63;
       margin-top: 10px;
@@ -462,9 +484,14 @@ export const HTML_SETTINGS = `
 
         <h4>Threads</h4>
         <div class="form-group">
-          <label for="threadsToken">アクセストークン</label>
-          <input type="password" id="threadsToken" placeholder="変更しない場合は空欄のまま">
-          <div class="info">Threads APIのアクセストークンを入力してください。</div>
+          <div id="threadsStatus" class="info">読み込み中...</div>
+          <div id="threadsConnected" style="display:none">
+            <p id="threadsExpiry"></p>
+            <button type="button" id="threadsDisconnectBtn" class="btn-danger">Threadsの連携を解除</button>
+          </div>
+          <div id="threadsDisconnected" style="display:none">
+            <button type="button" id="threadsConnectBtn">Threadsに接続</button>
+          </div>
         </div>
 
         <div class="actions">
@@ -474,8 +501,9 @@ export const HTML_SETTINGS = `
       </form>
     </div>
 
-    <!-- 右カラム: パスワード変更 -->
-    <div class="card">
+    <!-- 右カラム: パスワード変更 / アカウント削除 -->
+    <div class="right-column">
+      <div class="card">
       <h2>パスワード変更</h2>
       <form id="changePasswordForm">
         <div class="form-group">
@@ -495,6 +523,23 @@ export const HTML_SETTINGS = `
         </div>
         <div id="passwordMessage"></div>
       </form>
+    </div>
+
+    <!-- アカウント削除 -->
+    <div class="card card-danger">
+      <h2>アカウントを削除する</h2>
+      <p class="danger-description">アカウントを削除すると、すべての設定データが削除されます。この操作は取り消せません。</p>
+      <form id="deleteAccountForm">
+        <div class="form-group">
+          <label for="deletePassword">パスワードを入力して確認</label>
+          <input type="password" id="deletePassword" required>
+        </div>
+        <div class="actions">
+          <button type="submit" class="btn-danger">アカウントを削除する</button>
+        </div>
+        <div id="deleteMessage"></div>
+      </form>
+    </div>
     </div>
   </div>
   <script>
@@ -517,9 +562,67 @@ export const HTML_SETTINGS = `
         if (data.blueskyHandle) {
           document.getElementById('blueskyHandle').value = data.blueskyHandle;
         }
+        updateThreadsStatus(data);
       } catch (err) {
         console.error('設定の読み込みに失敗しました', err);
       }
+    }
+
+    function updateThreadsStatus(data) {
+      const statusDiv = document.getElementById('threadsStatus');
+      const connectedDiv = document.getElementById('threadsConnected');
+      const disconnectedDiv = document.getElementById('threadsDisconnected');
+      const expiryP = document.getElementById('threadsExpiry');
+
+      statusDiv.style.display = 'none';
+      if (data.hasThreadsToken) {
+        connectedDiv.style.display = 'block';
+        disconnectedDiv.style.display = 'none';
+        if (data.threadsTokenExpiresAt) {
+          const expiresAt = new Date(data.threadsTokenExpiresAt);
+          expiryP.textContent = '有効期限: ' + expiresAt.toLocaleDateString('ja-JP');
+        } else {
+          expiryP.textContent = '';
+        }
+      } else {
+        connectedDiv.style.display = 'none';
+        disconnectedDiv.style.display = 'block';
+      }
+    }
+
+    // Threads接続ボタン
+    document.getElementById('threadsConnectBtn').addEventListener('click', () => {
+      window.location.href = '/auth/threads?session=' + encodeURIComponent(token);
+    });
+
+    // Threads連携解除ボタン
+    document.getElementById('threadsDisconnectBtn').addEventListener('click', async () => {
+      if (!confirm('Threadsの連携を解除しますか？')) return;
+      try {
+        const res = await fetch('/api/threads/disconnect', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token },
+        });
+        if (res.ok) {
+          updateThreadsStatus({ hasThreadsToken: false });
+        }
+      } catch (err) {
+        console.error('Threads連携解除に失敗しました', err);
+      }
+    });
+
+    // OAuth認証後のメッセージ表示
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('threads_connected') === '1') {
+      const messageDiv = document.getElementById('message');
+      messageDiv.className = 'success';
+      messageDiv.textContent = 'Threadsと連携しました（保存ボタンの押下は不要です）';
+      history.replaceState(null, '', '/settings');
+    } else if (urlParams.get('threads_error')) {
+      const messageDiv = document.getElementById('message');
+      messageDiv.className = 'error';
+      messageDiv.textContent = 'Threads連携に失敗しました: ' + urlParams.get('threads_error');
+      history.replaceState(null, '', '/settings');
     }
 
     loadSettings();
@@ -532,7 +635,6 @@ export const HTML_SETTINGS = `
         blueskyHandle: document.getElementById('blueskyHandle').value,
         blueskyPassword: document.getElementById('blueskyPassword').value,
         misskeyToken: document.getElementById('misskeyToken').value,
-        threadsToken: document.getElementById('threadsToken').value,
       };
       
       try {
@@ -615,6 +717,39 @@ export const HTML_SETTINGS = `
           messageDiv.textContent = data.error === 'Current password is incorrect'
             ? '現在のパスワードが正しくありません'
             : (data.error || 'パスワードの変更に失敗しました');
+        }
+      } catch (err) {
+        messageDiv.className = 'error';
+        messageDiv.textContent = 'エラーが発生しました';
+      }
+    });
+
+    document.getElementById('deleteAccountForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const messageDiv = document.getElementById('deleteMessage');
+      const password = document.getElementById('deletePassword').value;
+
+      if (!confirm('本当にアカウントを削除しますか？この操作は取り消せません。')) return;
+
+      try {
+        const res = await fetch('/api/delete-account', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token,
+          },
+          body: JSON.stringify({ password }),
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          localStorage.removeItem('sessionToken');
+          window.location.href = '/login';
+        } else {
+          messageDiv.className = 'error';
+          messageDiv.textContent = data.error === 'Password is incorrect'
+            ? 'パスワードが正しくありません'
+            : (data.error || 'アカウントの削除に失敗しました');
         }
       } catch (err) {
         messageDiv.className = 'error';

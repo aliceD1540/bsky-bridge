@@ -118,6 +118,39 @@ export async function changePassword(env, sessionToken, currentPassword, newPass
   return { success: true };
 }
 
+// アカウント削除
+export async function deleteAccount(env, sessionToken, password) {
+  if (!password) {
+    return { success: false, error: 'Password is required' };
+  }
+
+  const session = await verifySession(env, sessionToken);
+  if (!session) {
+    return { success: false, error: 'Unauthorized' };
+  }
+
+  const user = await env.DB.prepare('SELECT id, password_hash FROM users WHERE id = ?')
+    .bind(session.userId)
+    .first();
+
+  if (!user) {
+    return { success: false, error: 'User not found' };
+  }
+
+  const valid = await verifyPassword(password, user.password_hash);
+  if (!valid) {
+    return { success: false, error: 'Password is incorrect' };
+  }
+
+  // user_settings は ON DELETE CASCADE で自動削除される
+  await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id).run();
+
+  // 現在のセッションを削除
+  await env.KV.delete(`session:${sessionToken}`);
+
+  return { success: true };
+}
+
 // セッション検証
 export async function verifySession(env, sessionToken) {
   if (!sessionToken) {

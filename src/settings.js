@@ -31,7 +31,7 @@ export async function saveSettings(env, userId, settings) {
     .first();
 
   if (existing) {
-    // 空欄の場合は既存の暗号化済み値をそのまま使用し、入力がある場合のみ再暗号化
+    // undefinedまたは空文字の場合は既存値を維持、nullの場合はクリア、文字列の場合は再暗号化
     const blueskyPasswordEnc = blueskyPassword
       ? await encrypt(blueskyPassword, env)
       : { cipherText: existing.bluesky_password_encrypted, iv: existing.bluesky_password_iv };
@@ -40,7 +40,14 @@ export async function saveSettings(env, userId, settings) {
       : { cipherText: existing.misskey_token_encrypted, iv: existing.misskey_token_iv };
     const threadsTokenEnc = threadsToken
       ? await encrypt(threadsToken, env)
-      : { cipherText: existing.threads_token_encrypted, iv: existing.threads_token_iv };
+      : threadsToken === null
+        ? { cipherText: null, iv: null }
+        : { cipherText: existing.threads_token_encrypted, iv: existing.threads_token_iv };
+
+    // threadsTokenExpiresAt: nullは明示クリア、undefinedは既存値維持
+    const newThreadsExpiresAt = threadsTokenExpiresAt === undefined
+      ? existing.threads_token_expires_at
+      : threadsTokenExpiresAt;
 
     // 更新
     await env.DB.prepare(`
@@ -64,7 +71,7 @@ export async function saveSettings(env, userId, settings) {
         misskeyTokenEnc.iv,
         threadsTokenEnc.cipherText,
         threadsTokenEnc.iv,
-        threadsTokenExpiresAt || existing.threads_token_expires_at || null,
+        newThreadsExpiresAt,
         now,
         userId
       )

@@ -1,7 +1,7 @@
 // Cloudflare Worker entry point
 
 import { fetchBlueskyPosts, fetchBlueskyPostByUri } from './blueskyClient.js';
-import { postToThreads, refreshThreadsToken } from './threadsClient.js';
+import { postToThreads, refreshThreadsToken, buildThreadsAuthUrl, exchangeCodeForToken, exchangeForLongLivedToken } from './threadsClient.js';
 import { postToMisskey } from './misskeyClient.js';
 import {
   isPosted,
@@ -10,7 +10,7 @@ import {
   setLastPostedAt,
 } from './kvStore.js';
 import { formatPost } from './formatPost.js';
-import { register, login, logout, verifySession, changePassword } from './auth.js';
+import { register, login, logout, verifySession, changePassword, deleteAccount } from './auth.js';
 import { saveSettings, getSettings, getPublicSettings, getAllUserSettings } from './settings.js';
 import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS } from './html.js';
 
@@ -27,6 +27,12 @@ export default {
     await handleQueue(batch, env);
   },
 };
+
+function generateOAuthState() {
+  const array = new Uint8Array(16);
+  crypto.getRandomValues(array);
+  return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
 // KVに保存されたトークンを優先し、期限が7日以内なら自動リフレッシュする（マルチユーザー対応）
 async function getEffectiveThreadsToken(env, user) {
@@ -113,6 +119,16 @@ async function handleRequest(request, env) {
     });
   }
 
+  if (path === '/api/delete-account' && request.method === 'POST') {
+    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const { password } = await request.json();
+    const result = await deleteAccount(env, sessionToken, password);
+    return new Response(JSON.stringify(result), {
+      status: result.success ? 200 : (result.error === 'Unauthorized' ? 401 : 400),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   if (path === '/api/settings' && request.method === 'GET') {
     const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
     const session = await verifySession(env, sessionToken);
@@ -143,6 +159,102 @@ async function handleRequest(request, env) {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // Threads OAuth: 認可開始
+  if (path === '/auth/threads' && request.method === 'GET') {
+    if (!env.THREADS_APP_ID || !env.THREADS_APP_SECRET || !env.APP_URL) {
+      return new Response('Threads OAuth is not configured. Set THREADS_APP_ID, THREADS_APP_SECRET, and APP_URL.', { status: 500 });
+    }
+
+    const sessionToken = url.searchParams.get('session');
+    const session = await verifySession(env, sessionToken);
+    if (!session) {
+      return Response.redirect(new URL('/login', request.url).toString(), 302);
+    }
+
+    // stateを生成してKVに10分間保存（state → userId のマッピング）
+    const state = generateOAuthState();
+    await env.KV.put(`oauth_state:${state}`, String(session.userId), { expirationTtl: 600 });
+
+    const redirectUri = `${env.APP_URL}/auth/threads/callback`;
+    const authUrl = buildThreadsAuthUrl({
+      clientId: env.THREADS_APP_ID,
+      redirectUri,
+      state,
+    });
+
+    return Response.redirect(authUrl, 302);
+  }
+
+  // Threads OAuth: コールバック
+  if (path === '/auth/threads/callback' && request.method === 'GET') {
+    const code = url.searchParams.get('code');
+    const state = url.searchParams.get('state');
+    const error = url.searchParams.get('error');
+
+    const settingsUrl = new URL('/settings', request.url);
+
+    if (error || !code || !state) {
+      settingsUrl.searchParams.set('threads_error', error || 'invalid_callback');
+      return Response.redirect(settingsUrl.toString(), 302);
+    }
+
+    // stateを検証してuserIdを取得
+    const userId = await env.KV.get(`oauth_state:${state}`);
+    if (!userId) {
+      settingsUrl.searchParams.set('threads_error', 'invalid_state');
+      return Response.redirect(settingsUrl.toString(), 302);
+    }
+
+    // 使用済みstateを即座に削除（リプレイ攻撃防止）
+    await env.KV.delete(`oauth_state:${state}`);
+
+    try {
+      const redirectUri = `${env.APP_URL}/auth/threads/callback`;
+
+      // 短期トークンに交換
+      const { accessToken: shortLivedToken } = await exchangeCodeForToken({ code, redirectUri, env });
+
+      // 長期トークン（60日）に交換
+      const { accessToken: longLivedToken, expiresIn } = await exchangeForLongLivedToken({
+        shortLivedToken,
+        env,
+      });
+
+      const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+      await saveSettings(env, Number(userId), {
+        threadsToken: longLivedToken,
+        threadsTokenExpiresAt: expiresAt,
+      });
+
+      settingsUrl.searchParams.set('threads_connected', '1');
+    } catch (e) {
+      console.error('Threads OAuth callback error:', e);
+      settingsUrl.searchParams.set('threads_error', 'token_exchange_failed');
+    }
+
+    return Response.redirect(settingsUrl.toString(), 302);
+  }
+
+  // Threads 連携解除
+  if (path === '/api/threads/disconnect' && request.method === 'POST') {
+    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const session = await verifySession(env, sessionToken);
+    if (!session) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    await saveSettings(env, session.userId, {
+      threadsToken: null,
+      threadsTokenExpiresAt: null,
+    });
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
 
   // 静的ファイル配信（frontend）
   if (path === '/' || path === '/login' || path === '/register' || path === '/settings') {
