@@ -146,14 +146,21 @@ async function handleRequest(request, env) {
         status: 429, headers: { 'Content-Type': 'application/json' },
       });
     }
-    const { email, password } = await request.json();
-    const result = await login(env, email, password);
-    if (result.success) await resetRateLimit(env, `login:${ip}`);
-    const headers = { 'Content-Type': 'application/json' };
-    if (result.success) {
-      headers['Set-Cookie'] = buildSessionCookie(result.sessionToken);
+    try {
+      const { email, password } = await request.json();
+      const result = await login(env, email, password);
+      if (result.success) await resetRateLimit(env, `login:${ip}`);
+      const headers = { 'Content-Type': 'application/json' };
+      if (result.success) {
+        headers['Set-Cookie'] = buildSessionCookie(result.sessionToken);
+      }
+      return new Response(JSON.stringify(result), { headers });
+    } catch (err) {
+      console.error('Login error:', err);
+      return new Response(JSON.stringify({ error: 'Internal server error' }), {
+        status: 500, headers: { 'Content-Type': 'application/json' },
+      });
     }
-    return new Response(JSON.stringify(result), { headers });
   }
 
   if (path === '/api/logout' && request.method === 'POST') {
@@ -164,7 +171,6 @@ async function handleRequest(request, env) {
         'Content-Type': 'application/json',
         'Set-Cookie': 'session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0',
       },
-      headers: { 'Content-Type': 'application/json' },
     });
   }
 
