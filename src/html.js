@@ -336,6 +336,7 @@ export const HTML_LOGIN = `
   ${FOOTER_HTML}
   ${MODAL_HTML}
   <script>
+    ${MODAL_SCRIPT}
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('email').value;
@@ -456,6 +457,7 @@ export const HTML_REGISTER = `
     </div>
   </div>
   <script>
+    ${MODAL_SCRIPT}
     document.getElementById('registerForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('email').value;
