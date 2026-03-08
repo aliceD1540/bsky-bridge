@@ -5,6 +5,7 @@ const FOOTER_HTML = `
   <div class="page-footer">
     <a onclick="openModal('helpModal')">使い方</a>
     <a onclick="openModal('termsModal')">利用規約</a>
+    <a onclick="openModal('privacyModal')">プライバシーポリシー</a>
     <span style="display:block;margin-top:8px">&copy; <a href="https://project-grimoire.dev/" target="_blank" rel="noopener">project-grimoire.dev</a></span>
   </div>
 `;
@@ -162,6 +163,47 @@ const MODAL_HTML = `
       <p>本規約は予告なく変更される場合があります。変更後も本サービスを継続して利用した場合、変更後の規約に同意したものとみなします。</p>
     </div>
   </div>
+
+  <!-- プライバシーポリシーモーダル -->
+  <div class="modal-overlay" id="privacyModal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('privacyModal')">✕</button>
+      <h2>プライバシーポリシー</h2>
+
+      <h3>収集する情報</h3>
+      <p>本サービスは以下の情報を収集・保存します。</p>
+      <ul>
+        <li>メールアドレス（アカウント登録時）</li>
+        <li>パスワード（PBKDF2+saltによりハッシュ化して保管）</li>
+        <li>Bluesky のユーザーハンドル</li>
+        <li>Threads の長期アクセストークンおよび有効期限</li>
+        <li>Misskey.io のアクセストークン</li>
+      </ul>
+      <p>SNS のアクセストークンは AES-GCM により暗号化して保管します。Bluesky のアプリパスワードはアカウント所有確認のみに使用し、保存しません。</p>
+
+      <h3>情報の利用目的</h3>
+      <p>収集した情報は以下の目的にのみ使用します。</p>
+      <ul>
+        <li>ユーザー認証およびセッション管理</li>
+        <li>Bluesky の新着ポストを Threads・Misskey.io へ転記する処理</li>
+      </ul>
+
+      <h3>第三者への提供</h3>
+      <p>収集した個人情報を第三者に販売・提供・開示することはありません。ただし、転記処理の性質上、投稿内容は各 SNS プラットフォームの API を通じて送信されます。</p>
+
+      <h3>情報の保管・削除</h3>
+      <p>アカウントを削除すると、登録されたすべての情報（メールアドレス・SNS 設定・投稿履歴）が削除されます。</p>
+
+      <h3>アクセスログ</h3>
+      <p>本サービスは Cloudflare Workers 上で動作しており、リクエストに関する情報が Cloudflare のインフラにより処理されます。Cloudflare のプライバシーポリシーについては <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">こちら</a> をご確認ください。</p>
+
+      <h3>ポリシーの変更</h3>
+      <p>本ポリシーは予告なく変更される場合があります。変更後も本サービスを継続して利用した場合、変更後のポリシーに同意したものとみなします。</p>
+
+      <h3>お問い合わせ</h3>
+      <p>プライバシーに関するお問い合わせは <a href="https://project-grimoire.dev/" target="_blank" rel="noopener">project-grimoire.dev</a> までご連絡ください。</p>
+    </div>
+  </div>
 `;
 
 // 共通モーダルスクリプト
@@ -186,7 +228,7 @@ const MODAL_SCRIPT = `
     }
   });
   // URLハッシュによるモーダル自動オープン（例: /login#terms, /login#howto）
-  const hashMap = { terms: 'termsModal', howto: 'howtoModal' };
+  const hashMap = { terms: 'termsModal', howto: 'howtoModal', privacy: 'privacyModal' };
   const hash = location.hash.replace('#', '');
   if (hashMap[hash]) openModal(hashMap[hash]);
 `;
