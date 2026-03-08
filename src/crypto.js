@@ -66,7 +66,7 @@ export async function decrypt(cipherTextHex, ivHex, env) {
 }
 
 // PBKDF2 + ランダムsalt によるパスワードハッシュ化
-// イテレーション数 600,000 は OWASP 推奨値
+// Cloudflare Workers の Web Crypto API はイテレーション上限が 100,000
 export async function hashPassword(password) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const hash = await deriveKey(password, salt);
@@ -82,7 +82,7 @@ async function deriveKey(password, saltBytes) {
     ['deriveBits']
   );
   const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', salt: saltBytes, iterations: 600000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: saltBytes, iterations: 100000, hash: 'SHA-256' },
     keyMaterial,
     256
   );
