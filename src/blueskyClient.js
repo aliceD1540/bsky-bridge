@@ -3,19 +3,22 @@
 
 const BLUESKY_API_ENDPOINT = 'https://public.api.bsky.app/xrpc';
 
-function normalizePost(item) {
+function normalizePost(item, selfHandle) {
   const post = item.post;
   const record = post.record || {};
   const embed = post.embed || {};
   const reason = item.reason;
 
-  // リポスト
-  if (reason?.$type === 'app.bsky.feed.defs#reasonRepost') {
+  // リポスト（reasonによる判定 + authorが自分でない場合も補完）
+  const isRepost = reason?.$type === 'app.bsky.feed.defs#reasonRepost'
+    || (selfHandle && post.author?.handle !== selfHandle);
+  if (isRepost) {
     const repostHandle = post.author?.handle;
     const repostRkey = post.uri?.split('/').pop();
     return {
       uri: post.uri,
-      createdAt: record.createdAt,
+      // リポストした日時（reason.indexedAt）を優先。元投稿のcreatedAtは古い場合がある
+      createdAt: reason?.indexedAt || record.createdAt,
       text: record.text || '',
       reply: record.reply || null,
       type: 'repost',
@@ -77,7 +80,7 @@ export async function fetchBlueskyPosts({ handle, since }) {
   }
   const data = await res.json();
   return (data.feed || [])
-    .map(normalizePost)
+    .map((item) => normalizePost(item, handle))
     .filter((post) => post.createdAt && new Date(post.createdAt) > new Date(since))
     .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 }
