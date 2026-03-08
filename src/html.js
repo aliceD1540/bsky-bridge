@@ -346,7 +346,6 @@ export const HTML_LOGIN = `
         const data = await res.json();
         
         if (data.success) {
-          localStorage.setItem('sessionToken', data.sessionToken);
           window.location.href = '/settings';
         } else {
           errorDiv.textContent = data.error || 'ログインに失敗しました';
@@ -355,7 +354,6 @@ export const HTML_LOGIN = `
         errorDiv.textContent = 'エラーが発生しました';
       }
     });
-    ${MODAL_SCRIPT}
   </script>
 </body>
 </html>
@@ -468,7 +466,6 @@ export const HTML_REGISTER = `
         const data = await res.json();
         
         if (data.success) {
-          localStorage.setItem('sessionToken', data.sessionToken);
           window.location.href = '/settings';
         } else {
           errorDiv.textContent = data.error || '登録に失敗しました';
@@ -722,17 +719,10 @@ export const HTML_SETTINGS = `
     </div>
   </div>
   <script>
-    const token = localStorage.getItem('sessionToken');
-    if (!token) {
-      window.location.href = '/login';
-    }
-
     // 設定読み込み
     async function loadSettings() {
       try {
-        const res = await fetch('/api/settings', {
-          headers: { 'Authorization': 'Bearer ' + token },
-        });
+        const res = await fetch('/api/settings', { credentials: 'same-origin' });
         if (res.status === 401) {
           window.location.href = '/login';
           return;
@@ -770,8 +760,22 @@ export const HTML_SETTINGS = `
     }
 
     // Threads接続ボタン
-    document.getElementById('threadsConnectBtn').addEventListener('click', () => {
-      window.location.href = '/auth/threads?session=' + encodeURIComponent(token);
+    document.getElementById('threadsConnectBtn').addEventListener('click', async () => {
+      try {
+        const res = await fetch('/auth/threads/start', {
+          method: 'POST',
+          credentials: 'same-origin',
+        });
+        if (res.status === 401) { window.location.href = '/login'; return; }
+        const data = await res.json();
+        if (data.authUrl) {
+          window.location.href = data.authUrl;
+        } else {
+          alert('Threads連携の開始に失敗しました: ' + (data.error || ''));
+        }
+      } catch (err) {
+        alert('エラーが発生しました');
+      }
     });
 
     // Threads連携解除ボタン
@@ -780,7 +784,7 @@ export const HTML_SETTINGS = `
       try {
         const res = await fetch('/api/threads/disconnect', {
           method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + token },
+          credentials: 'same-origin',
         });
         if (res.ok) {
           updateThreadsStatus({ hasThreadsToken: false });
@@ -819,10 +823,8 @@ export const HTML_SETTINGS = `
       try {
         const res = await fetch('/api/settings', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + token,
-          },
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify(settings),
         });
         
@@ -847,14 +849,10 @@ export const HTML_SETTINGS = `
 
     async function logout() {
       try {
-        await fetch('/api/logout', {
-          method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + token },
-        });
+        await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
       } catch (err) {
         console.error('ログアウトエラー', err);
       }
-      localStorage.removeItem('sessionToken');
       window.location.href = '/login';
     }
 
@@ -874,10 +872,8 @@ export const HTML_SETTINGS = `
       try {
         const res = await fetch('/api/change-password', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + token,
-          },
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify({ currentPassword, newPassword }),
         });
 
@@ -913,16 +909,13 @@ export const HTML_SETTINGS = `
       try {
         const res = await fetch('/api/delete-account', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + token,
-          },
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify({ password }),
         });
 
         const data = await res.json();
         if (data.success) {
-          localStorage.removeItem('sessionToken');
           window.location.href = '/login';
         } else {
           messageDiv.className = 'error';

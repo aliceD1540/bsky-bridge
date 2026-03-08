@@ -1,6 +1,6 @@
 // 認証ハンドラー
 
-import { hashPassword, verifyPassword } from './crypto.js';
+import { hashPassword, verifyPassword, verifySha256Password } from './crypto.js';
 
 // セッショントークン生成
 function generateSessionToken() {
@@ -15,32 +15,35 @@ export async function register(env, email, password) {
     return { success: false, error: 'Email and password are required' };
   }
 
-  // メールアドレスの重複チェック
+  // メールアドレスの重複チェック（ユーザー列挙を防ぐため汎用メッセージを返す）
   const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?')
     .bind(email)
     .first();
   
   if (existing) {
-    return { success: false, error: 'Email already exists' };
+    return { success: false, error: 'Registration failed' };
   }
 
-  // パスワードハッシュ化
-  const passwordHash = await hashPassword(password);
+  // PBKDF2+saltでパスワードハッシュ化
+  const { hash: passwordHash, salt: passwordSalt } = await hashPassword(password);
   const now = new Date().toISOString();
 
   // ユーザー作成
   const result = await env.DB.prepare(
-    'INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)'
+    'INSERT INTO users (email, password_hash, password_salt, password_hash_version, created_at) VALUES (?, ?, ?, 2, ?)'
   )
-    .bind(email, passwordHash, now)
+    .bind(email, passwordHash, passwordSalt, now)
     .run();
 
   const userId = result.meta.last_row_id;
 
-  // セッショントークン生成
+  // セッショントークン生成・KVに保存（userId逆引き用のインデックスも保持）
   const sessionToken = generateSessionToken();
   await env.KV.put(`session:${sessionToken}`, JSON.stringify({ userId, email }), {
-    expirationTtl: 30 * 24 * 60 * 60, // 30日
+    expirationTtl: 30 * 24 * 60 * 60,
+  });
+  await env.KV.put(`user_session:${userId}:${sessionToken}`, '1', {
+    expirationTtl: 30 * 24 * 60 * 60,
   });
 
   return { success: true, userId, sessionToken };
@@ -53,7 +56,9 @@ export async function login(env, email, password) {
   }
 
   // ユーザー取得
-  const user = await env.DB.prepare('SELECT id, email, password_hash FROM users WHERE email = ?')
+  const user = await env.DB.prepare(
+    'SELECT id, email, password_hash, password_salt, password_hash_version FROM users WHERE email = ?'
+  )
     .bind(email)
     .first();
 
@@ -61,16 +66,32 @@ export async function login(env, email, password) {
     return { success: false, error: 'Invalid email or password' };
   }
 
-  // パスワード検証
-  const valid = await verifyPassword(password, user.password_hash);
+  // パスワード検証（バージョン1はSHA-256、バージョン2はPBKDF2）
+  let valid = false;
+  if (user.password_hash_version === 1) {
+    valid = await verifySha256Password(password, user.password_hash);
+    if (valid) {
+      // ログイン成功時にPBKDF2へ自動マイグレーション
+      const { hash: newHash, salt: newSalt } = await hashPassword(password);
+      await env.DB.prepare(
+        'UPDATE users SET password_hash = ?, password_salt = ?, password_hash_version = 2 WHERE id = ?'
+      ).bind(newHash, newSalt, user.id).run();
+    }
+  } else {
+    valid = await verifyPassword(password, user.password_hash, user.password_salt);
+  }
+
   if (!valid) {
     return { success: false, error: 'Invalid email or password' };
   }
 
-  // セッショントークン生成
+  // セッショントークン生成・KVに保存（userId逆引き用のインデックスも保持）
   const sessionToken = generateSessionToken();
   await env.KV.put(`session:${sessionToken}`, JSON.stringify({ userId: user.id, email: user.email }), {
-    expirationTtl: 30 * 24 * 60 * 60, // 30日
+    expirationTtl: 30 * 24 * 60 * 60,
+  });
+  await env.KV.put(`user_session:${user.id}:${sessionToken}`, '1', {
+    expirationTtl: 30 * 24 * 60 * 60,
   });
 
   return { success: true, userId: user.id, sessionToken };
@@ -82,6 +103,12 @@ export async function logout(env, sessionToken) {
     return { success: false, error: 'Session token is required' };
   }
 
+  // セッションのuserIdを取得してインデックスも削除
+  const sessionData = await env.KV.get(`session:${sessionToken}`);
+  if (sessionData) {
+    const { userId } = JSON.parse(sessionData);
+    await env.KV.delete(`user_session:${userId}:${sessionToken}`);
+  }
   await env.KV.delete(`session:${sessionToken}`);
   return { success: true };
 }
@@ -97,7 +124,9 @@ export async function changePassword(env, sessionToken, currentPassword, newPass
     return { success: false, error: 'Unauthorized' };
   }
 
-  const user = await env.DB.prepare('SELECT id, password_hash FROM users WHERE id = ?')
+  const user = await env.DB.prepare(
+    'SELECT id, password_hash, password_salt, password_hash_version FROM users WHERE id = ?'
+  )
     .bind(session.userId)
     .first();
 
@@ -105,15 +134,17 @@ export async function changePassword(env, sessionToken, currentPassword, newPass
     return { success: false, error: 'User not found' };
   }
 
-  const valid = await verifyPassword(currentPassword, user.password_hash);
+  const valid = user.password_hash_version === 1
+    ? await verifySha256Password(currentPassword, user.password_hash)
+    : await verifyPassword(currentPassword, user.password_hash, user.password_salt);
   if (!valid) {
     return { success: false, error: 'Current password is incorrect' };
   }
 
-  const newPasswordHash = await hashPassword(newPassword);
-  await env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ?')
-    .bind(newPasswordHash, user.id)
-    .run();
+  const { hash: newHash, salt: newSalt } = await hashPassword(newPassword);
+  await env.DB.prepare(
+    'UPDATE users SET password_hash = ?, password_salt = ?, password_hash_version = 2 WHERE id = ?'
+  ).bind(newHash, newSalt, user.id).run();
 
   return { success: true };
 }
@@ -129,7 +160,9 @@ export async function deleteAccount(env, sessionToken, password) {
     return { success: false, error: 'Unauthorized' };
   }
 
-  const user = await env.DB.prepare('SELECT id, password_hash FROM users WHERE id = ?')
+  const user = await env.DB.prepare(
+    'SELECT id, password_hash, password_salt, password_hash_version FROM users WHERE id = ?'
+  )
     .bind(session.userId)
     .first();
 
@@ -137,7 +170,9 @@ export async function deleteAccount(env, sessionToken, password) {
     return { success: false, error: 'User not found' };
   }
 
-  const valid = await verifyPassword(password, user.password_hash);
+  const valid = user.password_hash_version === 1
+    ? await verifySha256Password(password, user.password_hash)
+    : await verifyPassword(password, user.password_hash, user.password_salt);
   if (!valid) {
     return { success: false, error: 'Password is incorrect' };
   }
@@ -145,8 +180,15 @@ export async function deleteAccount(env, sessionToken, password) {
   // user_settings は ON DELETE CASCADE で自動削除される
   await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id).run();
 
-  // 現在のセッションを削除
-  await env.KV.delete(`session:${sessionToken}`);
+  // 全セッションをKVから削除（user_session:userId:* を列挙）
+  const sessions = await env.KV.list({ prefix: `user_session:${user.id}:` });
+  await Promise.all(
+    sessions.keys.map(async ({ name }) => {
+      const token = name.replace(`user_session:${user.id}:`, '');
+      await env.KV.delete(`session:${token}`);
+      await env.KV.delete(name);
+    })
+  );
 
   return { success: true };
 }

@@ -65,15 +65,53 @@ export async function decrypt(cipherTextHex, ivHex, env) {
   return new TextDecoder().decode(decrypted);
 }
 
-// パスワードハッシュ化（bcryptの代わりにシンプルなSHA-256を使用）
+// PBKDF2 + ランダムsalt によるパスワードハッシュ化
+// イテレーション数 600,000 は OWASP 推奨値
 export async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return bufToHex(hashBuffer);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const hash = await deriveKey(password, salt);
+  return { hash: bufToHex(hash), salt: bufToHex(salt) };
 }
 
-export async function verifyPassword(password, hash) {
-  const computed = await hashPassword(password);
-  return computed === hash;
+async function deriveKey(password, saltBytes) {
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt: saltBytes, iterations: 600000, hash: 'SHA-256' },
+    keyMaterial,
+    256
+  );
+  return bits;
+}
+
+// constant-time 比較でタイミングアタックを防止
+async function timingSafeEqual(a, b) {
+  const aBytes = new TextEncoder().encode(a);
+  const bBytes = new TextEncoder().encode(b);
+  if (aBytes.length !== bBytes.length) return false;
+  let diff = 0;
+  for (let i = 0; i < aBytes.length; i++) {
+    diff |= aBytes[i] ^ bBytes[i];
+  }
+  return diff === 0;
+}
+
+// PBKDF2ハッシュの検証
+export async function verifyPassword(password, hash, salt) {
+  const saltBytes = hexToBuf(salt);
+  const computed = bufToHex(await deriveKey(password, saltBytes));
+  return timingSafeEqual(computed, hash);
+}
+
+// 旧SHA-256ハッシュの検証（マイグレーション用）
+export async function verifySha256Password(password, hash) {
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(password));
+  const computed = bufToHex(hashBuffer);
+  return timingSafeEqual(computed, hash);
 }

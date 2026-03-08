@@ -167,6 +167,9 @@ export async function getPublicSettings(env, userId) {
   const row = await env.DB.prepare(`
     SELECT
       bluesky_handle,
+      bluesky_password_encrypted,
+      misskey_token_encrypted,
+      threads_token_encrypted,
       threads_token_expires_at
     FROM user_settings
     WHERE user_id = ?

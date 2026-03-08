@@ -34,6 +34,34 @@ function generateOAuthState() {
   return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// IPごとの試行回数をKVで管理（5回失敗で15分ロックアウト）
+async function checkRateLimit(env, key) {
+  const kvKey = `rate_limit:${key}`;
+  const raw = await env.KV.get(kvKey);
+  const attempts = raw ? parseInt(raw, 10) : 0;
+  if (attempts >= 5) return false;
+  await env.KV.put(kvKey, String(attempts + 1), { expirationTtl: 15 * 60 });
+  return true;
+}
+
+async function resetRateLimit(env, key) {
+  await env.KV.delete(`rate_limit:${key}`);
+}
+
+function buildSessionCookie(token) {
+  return `session=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000`;
+}
+
+function getSessionToken(request) {
+  // httpOnly Cookie を優先し、後方互換としてBearerトークンにも対応
+  const cookie = request.headers.get('Cookie');
+  if (cookie) {
+    const match = cookie.match(/(?:^|;\s*)session=([^;]+)/);
+    if (match) return match[1];
+  }
+  return request.headers.get('Authorization')?.replace('Bearer ', '') || null;
+}
+
 // KVに保存されたトークンを優先し、期限が7日以内なら自動リフレッシュする（マルチユーザー対応）
 async function getEffectiveThreadsToken(env, user) {
   const { userId, threadsToken, threadsTokenExpiresAt } = user;
@@ -84,33 +112,64 @@ async function handleRequest(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
 
+  // CSRF対策：POSTリクエストのOriginを検証（ブラウザからの正規リクエストのみ許可）
+  if (request.method === 'POST' && path.startsWith('/api/')) {
+    const origin = request.headers.get('Origin');
+    if (origin && env.APP_URL && origin !== env.APP_URL) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
   // API エンドポイント
   if (path === '/api/register' && request.method === 'POST') {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    if (!await checkRateLimit(env, `register:${ip}`)) {
+      return new Response(JSON.stringify({ error: 'Too many attempts. Please try again later.' }), {
+        status: 429, headers: { 'Content-Type': 'application/json' },
+      });
+    }
     const { email, password } = await request.json();
     const result = await register(env, email, password);
-    return new Response(JSON.stringify(result), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const headers = { 'Content-Type': 'application/json' };
+    if (result.success) {
+      headers['Set-Cookie'] = buildSessionCookie(result.sessionToken);
+    }
+    return new Response(JSON.stringify(result), { headers });
   }
 
   if (path === '/api/login' && request.method === 'POST') {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    if (!await checkRateLimit(env, `login:${ip}`)) {
+      return new Response(JSON.stringify({ error: 'Too many attempts. Please try again later.' }), {
+        status: 429, headers: { 'Content-Type': 'application/json' },
+      });
+    }
     const { email, password } = await request.json();
     const result = await login(env, email, password);
-    return new Response(JSON.stringify(result), {
-      headers: { 'Content-Type': 'application/json' },
-    });
+    if (result.success) await resetRateLimit(env, `login:${ip}`);
+    const headers = { 'Content-Type': 'application/json' };
+    if (result.success) {
+      headers['Set-Cookie'] = buildSessionCookie(result.sessionToken);
+    }
+    return new Response(JSON.stringify(result), { headers });
   }
 
   if (path === '/api/logout' && request.method === 'POST') {
-    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const sessionToken = getSessionToken(request);
     const result = await logout(env, sessionToken);
     return new Response(JSON.stringify(result), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Set-Cookie': 'session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0',
+      },
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
   if (path === '/api/change-password' && request.method === 'POST') {
-    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const sessionToken = getSessionToken(request);
     const { currentPassword, newPassword } = await request.json();
     const result = await changePassword(env, sessionToken, currentPassword, newPassword);
     return new Response(JSON.stringify(result), {
@@ -120,7 +179,7 @@ async function handleRequest(request, env) {
   }
 
   if (path === '/api/delete-account' && request.method === 'POST') {
-    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const sessionToken = getSessionToken(request);
     const { password } = await request.json();
     const result = await deleteAccount(env, sessionToken, password);
     return new Response(JSON.stringify(result), {
@@ -130,7 +189,7 @@ async function handleRequest(request, env) {
   }
 
   if (path === '/api/settings' && request.method === 'GET') {
-    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const sessionToken = getSessionToken(request);
     const session = await verifySession(env, sessionToken);
     if (!session) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -145,7 +204,7 @@ async function handleRequest(request, env) {
   }
 
   if (path === '/api/settings' && request.method === 'POST') {
-    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const sessionToken = getSessionToken(request);
     const session = await verifySession(env, sessionToken);
     if (!session) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -160,19 +219,25 @@ async function handleRequest(request, env) {
     });
   }
 
-  // Threads OAuth: 認可開始
-  if (path === '/auth/threads' && request.method === 'GET') {
+  // Threads OAuth: 認可開始（POSTでセッション検証→一時URLを返す）
+  if (path === '/auth/threads/start' && request.method === 'POST') {
     if (!env.THREADS_APP_ID || !env.THREADS_APP_SECRET || !env.APP_URL) {
-      return new Response('Threads OAuth is not configured. Set THREADS_APP_ID, THREADS_APP_SECRET, and APP_URL.', { status: 500 });
+      return new Response(JSON.stringify({ error: 'Threads OAuth is not configured.' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
-    const sessionToken = url.searchParams.get('session');
+    const sessionToken = getSessionToken(request);
     const session = await verifySession(env, sessionToken);
     if (!session) {
-      return Response.redirect(new URL('/login', request.url).toString(), 302);
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
 
-    // stateを生成してKVに10分間保存（state → userId のマッピング）
+    // state に userId を紐付けてKVに10分間保存
     const state = generateOAuthState();
     await env.KV.put(`oauth_state:${state}`, String(session.userId), { expirationTtl: 600 });
 
@@ -183,7 +248,9 @@ async function handleRequest(request, env) {
       state,
     });
 
-    return Response.redirect(authUrl, 302);
+    return new Response(JSON.stringify({ authUrl }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   // Threads OAuth: コールバック
@@ -238,7 +305,7 @@ async function handleRequest(request, env) {
 
   // Threads 連携解除
   if (path === '/api/threads/disconnect' && request.method === 'POST') {
-    const sessionToken = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const sessionToken = getSessionToken(request);
     const session = await verifySession(env, sessionToken);
     if (!session) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
