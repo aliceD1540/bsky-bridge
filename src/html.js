@@ -1,5 +1,179 @@
 // フロントエンドHTMLテンプレート
 
+// 共通フッターHTML
+const FOOTER_HTML = `
+  <div class="page-footer">
+    <a onclick="openModal('helpModal')">使い方</a>
+    <a onclick="openModal('termsModal')">利用規約</a>
+    <span style="display:block;margin-top:8px">&copy; <a href="https://project-grimoire.dev/" target="_blank" rel="noopener">project-grimoire.dev</a></span>
+  </div>
+`;
+const MODAL_STYLES = `
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 16px;
+    overflow-y: auto;
+    box-sizing: border-box;
+  }
+  .modal-overlay.open {
+    display: flex;
+  }
+  .modal {
+    background: white;
+    border-radius: 8px;
+    max-width: 680px;
+    width: 100%;
+    padding: 32px;
+    position: relative;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  }
+  .modal h2 {
+    margin-top: 0;
+    color: #333;
+  }
+  .modal h3 {
+    color: #444;
+    margin-top: 1.5em;
+  }
+  .modal p, .modal li {
+    color: #555;
+    line-height: 1.7;
+    font-size: 14px;
+  }
+  .modal ul {
+    padding-left: 1.4em;
+  }
+  .modal-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #657786;
+    width: auto;
+    padding: 4px 8px;
+  }
+  .modal-close:hover {
+    color: #333;
+    background: none;
+  }
+  .page-footer {
+    text-align: center;
+    margin-top: 20px;
+    font-size: 13px;
+    color: #657786;
+  }
+  .page-footer a {
+    color: #1da1f2;
+    text-decoration: none;
+    margin: 0 8px;
+    cursor: pointer;
+  }
+  .page-footer a:hover {
+    text-decoration: underline;
+  }
+`;
+
+// 共通モーダルHTML（使い方・利用規約）
+const MODAL_HTML = `
+  <!-- 使い方モーダル -->
+  <div class="modal-overlay" id="helpModal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('helpModal')">✕</button>
+      <h2>使い方</h2>
+      <h3>このサービスについて</h3>
+      <p>Bluesky Bridge は、Bluesky アカウントの新着ポストを自動的に Threads および Misskey.io へ転記するサービスです。5分ごとに新着ポストを確認し、未投稿のポストを自動的に転送します。</p>
+
+      <h3>セットアップ手順</h3>
+      <ol style="color:#555;line-height:1.8;font-size:14px;padding-left:1.4em">
+        <li>アカウントを作成してログインします。</li>
+        <li>設定画面の「転記元」に Bluesky のアカウント名とアプリパスワードを入力し、「保存」します。</li>
+        <li>転記先の「Threads」欄で「Threadsに接続」ボタンを押し、OAuth認証を完了します。</li>
+        <li>転記先の「Misskey.io」欄にアクセストークンを入力し、「保存」します（オプション）。</li>
+        <li>設定完了後、5分以内に転記が開始されます。</li>
+      </ol>
+
+      <h3>注意事項</h3>
+      <ul>
+        <li>転記対象はリプライを除く通常のポストです。</li>
+        <li>画像付きポストも転記されます（最大4枚）。</li>
+        <li>Threads は1日250件の投稿制限があります。</li>
+        <li>アカウント登録日時以前のポストは転記されません。</li>
+        <li>Bluesky のアプリパスワードは設定→「アプリパスワード」から作成できます。</li>
+        <li>Threads トークンの有効期限は60日です。期限の7日前に自動更新されます。</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- 利用規約モーダル -->
+  <div class="modal-overlay" id="termsModal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeModal('termsModal')">✕</button>
+      <h2>利用規約</h2>
+      <h3>第1条（サービスの利用）</h3>
+      <p>本サービスを利用するにあたり、利用者は本規約に同意したものとみなします。本サービスは個人利用を前提としており、商業目的での利用はお断りする場合があります。</p>
+
+      <h3>第2条（禁止事項）</h3>
+      <p>利用者は以下の行為を行ってはなりません。</p>
+      <ul>
+        <li>法令または公序良俗に反するコンテンツの転記</li>
+        <li>他者の著作権・肖像権・プライバシーを侵害するコンテンツの転記</li>
+        <li>スパムや自動生成コンテンツの大量転記</li>
+        <li>本サービスのシステムへの不正アクセスや過負荷をかける行為</li>
+        <li>第三者になりすます行為</li>
+      </ul>
+
+      <h3>第3条（免責事項）</h3>
+      <p>本サービスは現状有姿で提供されます。運営者は以下について責任を負いません。</p>
+      <ul>
+        <li>転記の遅延・失敗・中断</li>
+        <li>各SNSプラットフォームの仕様変更による機能停止</li>
+        <li>本サービス利用により生じた損害</li>
+        <li>第三者が投稿したコンテンツの内容</li>
+      </ul>
+
+      <h3>第4条（サービスの変更・終了）</h3>
+      <p>運営者は予告なくサービスの内容を変更、または提供を終了することがあります。</p>
+
+      <h3>第5条（個人情報の取り扱い）</h3>
+      <p>登録されたメールアドレスおよびSNS認証情報はサービス提供のみに使用します。第三者への提供は行いません。SNS認証情報はAES-GCMにより暗号化して保管します。</p>
+
+      <h3>第6条（規約の変更）</h3>
+      <p>本規約は予告なく変更される場合があります。変更後も本サービスを継続して利用した場合、変更後の規約に同意したものとみなします。</p>
+    </div>
+  </div>
+`;
+
+// 共通モーダルスクリプト
+const MODAL_SCRIPT = `
+  function openModal(id) {
+    document.getElementById(id).classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal(id) {
+    document.getElementById(id).classList.remove('open');
+    document.body.style.overflow = '';
+  }
+  document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) closeModal(overlay.id);
+    });
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.modal-overlay.open').forEach(m => closeModal(m.id));
+    }
+  });
+`;
+
 export const HTML_INDEX = `
 <!DOCTYPE html>
 <html lang="ja">
@@ -132,6 +306,7 @@ export const HTML_LOGIN = `
     a:hover {
       text-decoration: underline;
     }
+    ${MODAL_STYLES}
   </style>
 </head>
 <body>
@@ -153,6 +328,8 @@ export const HTML_LOGIN = `
       <a href="/register">新規登録はこちら</a>
     </div>
   </div>
+  ${FOOTER_HTML}
+  ${MODAL_HTML}
   <script>
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -178,6 +355,7 @@ export const HTML_LOGIN = `
         errorDiv.textContent = 'エラーが発生しました';
       }
     });
+    ${MODAL_SCRIPT}
   </script>
 </body>
 </html>
@@ -449,6 +627,7 @@ export const HTML_SETTINGS = `
       font-size: 12px;
       margin-top: 5px;
     }
+    ${MODAL_STYLES}
   </style>
 </head>
 <body>
@@ -756,7 +935,10 @@ export const HTML_SETTINGS = `
         messageDiv.textContent = 'エラーが発生しました';
       }
     });
+    ${MODAL_SCRIPT}
   </script>
+  ${FOOTER_HTML}
+  ${MODAL_HTML}
 </body>
 </html>
 `;

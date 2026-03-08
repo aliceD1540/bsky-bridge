@@ -257,7 +257,10 @@ async function handleRequest(request, env) {
 
 
   // 静的ファイル配信（frontend）
-  if (path === '/' || path === '/login' || path === '/register' || path === '/settings') {
+  if (path === '/') {
+    return Response.redirect(new URL('/login', request.url).toString(), 302);
+  }
+  if (path === '/login' || path === '/register' || path === '/settings') {
     return serveHTML(env, path);
   }
 
@@ -378,9 +381,9 @@ async function handleQueue(batch, env) {
       threadsTokenExpiresAt: userSettings.threadsTokenExpiresAt,
     });
 
-    if (!THREADS_TOKEN) {
-      console.error(`User ${userId}: THREADS_TOKEN is not set`);
-      message.retry();
+    if (!THREADS_TOKEN && !MISSKEY_TOKEN) {
+      console.error(`User ${userId}: No SNS tokens configured`);
+      message.ack();
       continue;
     }
 
@@ -412,23 +415,29 @@ async function handleQueue(batch, env) {
     }
 
     try {
-      const promises = [
-        postToThreads({ text: formatted.text, images: formatted.images, accessToken: THREADS_TOKEN }),
-      ];
+      const promises = [];
 
-      // Misskeyトークンがある場合のみ投稿
+      if (THREADS_TOKEN) {
+        promises.push(postToThreads({ text: formatted.text, images: formatted.images, accessToken: THREADS_TOKEN }));
+      }
       if (MISSKEY_TOKEN) {
         promises.push(postToMisskey({ text: formatted.text, images: formatted.images, token: MISSKEY_TOKEN }));
       }
 
-      const [threadsRes] = await Promise.all(promises);
+      const results = await Promise.all(promises);
+      const threadsRes = THREADS_TOKEN ? results[0] : null;
+      const misskeyRes = MISSKEY_TOKEN ? results[THREADS_TOKEN ? 1 : 0] : null;
 
-      if (threadsRes.success) {
+      const threadsOk = !THREADS_TOKEN || threadsRes?.success;
+      const misskeyOk = !MISSKEY_TOKEN || misskeyRes !== undefined;
+
+      if (threadsOk && misskeyOk) {
         await markPosted(env, postUri, post.createdAt);
-        console.log(`User ${userId}: Posted to Threads${MISSKEY_TOKEN ? ' and Misskey' : ''}:`, postUri);
+        const targets = [THREADS_TOKEN && 'Threads', MISSKEY_TOKEN && 'Misskey'].filter(Boolean).join(' and ');
+        console.log(`User ${userId}: Posted to ${targets}:`, postUri);
         message.ack();
       } else {
-        console.error(`User ${userId}: Threads post failed:`, threadsRes);
+        console.error(`User ${userId}: Post failed - Threads: ${threadsRes?.success}, Misskey: ${misskeyOk}`);
         message.retry();
       }
     } catch (e) {
