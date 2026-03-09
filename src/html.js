@@ -624,6 +624,21 @@ export const HTML_SETTINGS = `
       font-size: 14px;
       box-sizing: border-box;
     }
+    .radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .radio-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .radio-label input[type="radio"] {
+      margin: 0;
+      flex-shrink: 0;
+    }
     .actions {
       display: flex;
       gap: 10px;
@@ -702,10 +717,10 @@ export const HTML_SETTINGS = `
         <h2>転記元指定</h2>
         <p class="info">選択したプラットフォームの新着投稿が、認証情報を設定済みの他プラットフォームへ自動転記されます。</p>
         <form id="settingsForm">
-          <div class="form-group">
-            <label><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"> Bluesky</label><br>
-            <label><input type="radio" name="sourcePlatform" value="misskey" id="srcMisskey"> Misskey.io</label><br>
-            <label><input type="radio" name="sourcePlatform" value="threads" id="srcThreads"> Threads</label>
+          <div class="form-group radio-group">
+            <label class="radio-label"><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"><span>Bluesky</span></label>
+            <label class="radio-label"><input type="radio" name="sourcePlatform" value="misskey" id="srcMisskey"><span>Misskey.io</span></label>
+            <label class="radio-label"><input type="radio" name="sourcePlatform" value="threads" id="srcThreads"><span>Threads</span></label>
           </div>
           <div class="actions">
             <button type="submit">保存</button>
