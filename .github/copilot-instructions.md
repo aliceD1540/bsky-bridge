@@ -172,3 +172,36 @@ feat: ユーザー認証機能を追加
 - 環境はCloudflare上のサービス（Worker, D1, KVなど）を使用しています。これを考慮したコード生成を行ってください。
 - APIを叩く際、Read/Writeの制限を考慮したコード生成を行ってください。
 - html.js 内の「使い方」「利用規約」「プライバシーポリシー」は常に最新の内容を反映するようにしてください。
+
+## コード編集時の注意事項（ビルドエラー防止）
+
+### ファイル編集（edit ツール）
+
+- **`old_str` は変更対象の行を完全に含めること。**  
+  `old_str` が行の途中で終わると、隣接する行の一部が失われる。特に変数宣言（`const`, `let`, `var`）の行は必ず1行まるごと含める。
+
+  ```
+  // Bad: 次の行の先頭が old_str に含まれていない
+  old_str: "const fields = '...';\n  const sinceUnix"  // sinceUnix の残りが消える
+
+  // Good: 変更対象の行だけを old_str にする
+  old_str: "  const fields = 'id,text,...';"
+  ```
+
+- **ファイルの一部を置き換える場合は、残留する重複関数定義に注意すること。**  
+  ファイル先頭の import 行だけを `old_str` にすると、その後の既存関数がすべて残ったまま新しい関数定義が追加され、同名関数の重複エラーになる。  
+  ファイル全体を書き直す場合は `create` ツールではなく `view` で全文確認してから `edit` で完全置換するか、または重複する古い関数ブロックを明示的に削除する追加 `edit` を行うこと。
+
+### src/html.js のテンプレートリテラル
+
+- `HTML_INDEX`, `HTML_LOGIN`, `HTML_REGISTER`, `HTML_SETTINGS` などの HTML 文字列は **バッククォート（`` ` ``）で囲まれた ES テンプレートリテラル** として定義されている。
+- そのため、HTML 内に埋め込む `<script>` ブロックの JavaScript コードで **バッククォートをさらに使ってはならない**。  
+  代わりに文字列連結（`'...' + variable + '...'`）を使うこと。
+
+  ```javascript
+  // Bad: html.js 内の <script> でバッククォートを使う
+  const el = document.querySelector(`input[name="foo"][value="${val}"]`);
+
+  // Good: 文字列連結に置き換える
+  const el = document.querySelector('input[name="foo"][value="' + val + '"]');
+  ```
