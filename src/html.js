@@ -801,7 +801,7 @@ export const HTML_SETTINGS = `
         }
         // 転記元プラットフォームを設定
         const src = data.sourcePlatform || 'bluesky';
-        const radio = document.querySelector(`input[name="sourcePlatform"][value="${src}"]`);
+        const radio = document.querySelector('input[name="sourcePlatform"][value="' + src + '"]');
         if (radio) radio.checked = true;
         updateThreadsStatus(data);
       } catch (err) {
