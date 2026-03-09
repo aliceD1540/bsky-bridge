@@ -124,11 +124,8 @@ export const DEST_ADAPTERS = {
     },
 
     async post(env, userSettings, formatted) {
-      // Misskey CDN は Threads サーバーから直接取得できないためプロキシ経由で配信
-      // Bluesky等の公開CDNはプロキシ不要なのでKV書き込みを節約
-      const images = formatted.sourcePlatform === 'misskey'
-        ? await proxyImages(formatted.images || [], env)
-        : (formatted.images || []);
+      // Threads CDN は外部CDN画像を直接取得できないためソースを問わずプロキシ経由で配信
+      const images = await proxyImages(formatted.images || [], env);
       return postToThreads({ text: formatted.text, images, accessToken: userSettings.threadsToken });
     },
   },
