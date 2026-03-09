@@ -114,26 +114,32 @@ async function publishContainer({ userId, creationId, accessToken }) {
 export async function postToThreads({ text, images = [], accessToken }) {
   const userId = await getUserId(accessToken);
 
+  // Threads が取得できる有効な HTTPS URL のみ使用
+  const validImages = images.filter((url) => typeof url === 'string' && url.startsWith('http'));
+  if (validImages.length !== images.length) {
+    console.warn(`postToThreads: ${images.length - validImages.length} image(s) skipped due to invalid URL`);
+  }
+
   let creationId;
 
-  if (images.length === 0) {
+  if (validImages.length === 0) {
     // テキストのみ
     creationId = await createContainer({
       userId,
       params: { media_type: 'TEXT', text },
       accessToken,
     });
-  } else if (images.length === 1) {
+  } else if (validImages.length === 1) {
     // 画像1枚
     creationId = await createContainer({
       userId,
-      params: { media_type: 'IMAGE', image_url: images[0], text },
+      params: { media_type: 'IMAGE', image_url: validImages[0], text },
       accessToken,
     });
   } else {
     // カルーセル（複数画像）
     const childIds = await Promise.all(
-      images.map((url) =>
+      validImages.map((url) =>
         createContainer({
           userId,
           params: { media_type: 'IMAGE', image_url: url, is_carousel_item: 'true' },

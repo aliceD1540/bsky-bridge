@@ -62,11 +62,10 @@ export function normalizeMisskeyNote(note) {
     };
   }
 
-  // 画像ファイルのみ抽出（動画はスキップ）
+  // 画像ファイルのみ抽出（動画・無効URLはスキップ）
   const images = (note.files || [])
-    .filter((f) => f.type?.startsWith('image/'))
-    .map((f) => f.url)
-    .filter(Boolean);
+    .filter((f) => f.type?.startsWith('image/') && typeof f.url === 'string' && f.url.startsWith('http'))
+    .map((f) => f.url);
 
   // renote + text = 引用ノート
   let type = 'post';
