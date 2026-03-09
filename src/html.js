@@ -628,6 +628,7 @@ export const HTML_SETTINGS = `
       display: flex;
       gap: 10px;
       margin-top: 8px;
+      justify-content: flex-end;
     }
     button {
       padding: 10px 20px;
