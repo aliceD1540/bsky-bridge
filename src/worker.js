@@ -219,12 +219,14 @@ async function handleRequest(request, env) {
     }
     const settings = await request.json();
 
+    // 転記元変更チェック用に保存前の設定を取得
+    const existingBeforeSave = await getPublicSettings(env, session.userId);
+
     // Bluesky認証検証:
     // - ハンドルが変更される場合はアプリパスワード必須
     // - アプリパスワードが指定された場合は検証してから保存
     if (settings.blueskyHandle) {
-      const existing = await getPublicSettings(env, session.userId);
-      const handleChanged = settings.blueskyHandle !== existing?.blueskyHandle;
+      const handleChanged = settings.blueskyHandle !== existingBeforeSave?.blueskyHandle;
 
       if (handleChanged && !settings.blueskyAppPassword) {
         return new Response(JSON.stringify({ error: 'ハンドルを変更する場合はアプリパスワードの入力が必要です。' }), {
@@ -246,6 +248,16 @@ async function handleRequest(request, env) {
     }
 
     const result = await saveSettings(env, session.userId, settings);
+
+    // 転記元プラットフォームが変更された場合、新しいプラットフォームの最終投稿日時を現在時刻に設定して遡り転記を防ぐ
+    if (settings.sourcePlatform) {
+      const prevPlatform = existingBeforeSave?.sourcePlatform || 'bluesky';
+      if (prevPlatform !== settings.sourcePlatform) {
+        await setLastPostedAt(env, session.userId, new Date().toISOString(), settings.sourcePlatform);
+        console.log(`User ${session.userId}: sourcePlatform changed ${prevPlatform} → ${settings.sourcePlatform}, reset last_checked`);
+      }
+    }
+
     return new Response(JSON.stringify(result), {
       headers: { 'Content-Type': 'application/json' },
     });

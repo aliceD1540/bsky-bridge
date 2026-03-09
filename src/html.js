@@ -730,6 +730,7 @@ export const HTML_SETTINGS = `
       <div class="card">
         <h2>転記元指定</h2>
         <p class="info">選択したプラットフォームの新着投稿が、認証情報を設定済みの他プラットフォームへ自動転記されます。</p>
+        <p class="info">⚠️ 転記元を切り替えると、切り替え時点以降の新着投稿のみが転記されます。切り替え前の投稿は転記されません。</p>
         <form id="settingsForm">
           <div class="form-group radio-group">
             <label class="radio-label"><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"><span>Bluesky</span></label>
