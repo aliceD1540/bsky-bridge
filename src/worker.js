@@ -560,7 +560,7 @@ async function handleQueue(batch, env) {
 
     // プラットフォーム別のソースURL構築
     const sourceUrl = buildSourceUrl(sourcePlatform, handle, post, env);
-    const formatted = formatPost({ post, sourceUrl, sourcePlatform });
+    const formatted = { ...formatPost({ post, sourceUrl, sourcePlatform }), sourcePlatform };
 
     if (!formatted) {
       console.log('Post skipped (reply or unsupported type):', postId);
