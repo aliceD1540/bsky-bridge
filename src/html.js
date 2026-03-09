@@ -715,6 +715,11 @@ export const HTML_SETTINGS = `
       font-size: 12px;
       margin-top: 5px;
     }
+    .text-danger {
+      color: #e0245e;
+      font-size: 12px;
+      margin-top: 5px;
+    }
     ${MODAL_STYLES}
   </style>
 </head>
@@ -756,7 +761,8 @@ export const HTML_SETTINGS = `
         <div class="form-group">
           <label for="blueskyAppPassword">アプリパスワード</label>
           <input type="password" id="blueskyAppPassword" placeholder="変更しない場合は空欄のまま">
-          <div class="info">Blueskyの設定からアプリパスワードを生成してください。転記元・転記先どちらで使用する場合も設定が必要です。<br>⚠️ アプリパスワードを未設定の場合、Blueskyは転記先として認識されません。</div>
+          <p id="blueskyAppPasswordWarning" class="text-danger" style="display:none">アプリパスワードが未設定のため、Bluesky は転記先として無効です。</p>
+          <div class="info">Blueskyの設定からアプリパスワードを生成してください。転記元・転記先どちらで使用する場合も設定が必要です。</div>
         </div>
 
         <h3>Misskey.io</h3>
@@ -841,11 +847,14 @@ export const HTML_SETTINGS = `
         if (data.blueskyHandle) {
           document.getElementById('blueskyHandle').value = data.blueskyHandle;
         }
-        // アプリパスワード設定済みの場合はプレースホルダーで示す
+        // アプリパスワード未設定の場合、赤文字で警告を表示
+        const appPwWarning = document.getElementById('blueskyAppPasswordWarning');
         if (data.hasBlueskyAppPassword) {
           document.getElementById('blueskyAppPassword').placeholder = '設定済み（変更する場合のみ入力）';
+          appPwWarning.style.display = 'none';
         } else {
-          document.getElementById('blueskyAppPassword').placeholder = '未設定（転記先として使う場合は必須）';
+          document.getElementById('blueskyAppPassword').placeholder = '変更しない場合は空欄のまま';
+          appPwWarning.style.display = 'block';
         }
         // 転記元プラットフォームを設定
         const src = data.sourcePlatform || 'bluesky';
