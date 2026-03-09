@@ -129,7 +129,7 @@ const MODAL_HTML = `
         <li>Threads は1日250件の投稿制限があります。</li>
         <li>アカウント登録日時以前のポストは転記されません。</li>
         <li>Bluesky のアプリパスワードは設定→「アプリパスワード」から作成できます。</li>
-        <li>Misskey.io のアクセストークンは設定→「API」から「ドライブを操作する」「ノートを作成・削除する」の権限で作成してください。</li>
+        <li>Misskey.io のアクセストークンは設定→「API」から「アカウントの情報を見る」「ドライブを操作する」「ノートを作成・削除する」の権限で作成してください。</li>
         <li>Threads トークンの有効期限は60日です。期限の7日前に自動更新されます。60日以上ポストがない場合はトークンが期限切れになることがあります。その場合、設定画面に再連携を促すメッセージが表示されます。</li>
       </ul>
     </div>
@@ -762,7 +762,7 @@ export const HTML_SETTINGS = `
         <div class="form-group">
           <label for="misskeyToken">アクセストークン</label>
           <input type="password" id="misskeyToken" placeholder="変更しない場合は空欄のまま">
-          <div class="info">Misskey.ioの設定から「ドライブを操作する」「ノートを作成・削除する」の権限を持つアクセストークンを生成してください。</div>
+          <div class="info">Misskey.ioの設定から「アカウントの情報を見る」「ドライブを操作する」「ノートを作成・削除する」の権限を持つアクセストークンを生成してください。</div>
         </div>
 
         <h3>Threads</h3>
