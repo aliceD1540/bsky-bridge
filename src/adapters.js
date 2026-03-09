@@ -59,10 +59,12 @@ export const SOURCE_ADAPTERS = {
 
     async pollNewPosts(env, userSettings, since) {
       const identity = await SOURCE_ADAPTERS.misskey.getIdentity(env, userSettings);
+      // Misskey sinceDate はUnixタイムスタンプ（ミリ秒・整数）が必要
+      const sinceDate = since ? new Date(since).getTime() : undefined;
       return fetchMisskeyNotesSince({
         token: userSettings.misskeyToken,
         userId: identity.userId,
-        sinceDate: since,
+        sinceDate,
       });
     },
 
