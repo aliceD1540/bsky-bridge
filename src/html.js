@@ -756,7 +756,7 @@ export const HTML_SETTINGS = `
         <div class="form-group">
           <label for="blueskyAppPassword">アプリパスワード</label>
           <input type="password" id="blueskyAppPassword" placeholder="変更しない場合は空欄のまま">
-          <div class="info">Blueskyの設定からアプリパスワードを生成してください。転記元・転記先どちらの場合も必要です。</div>
+          <div class="info">Blueskyの設定からアプリパスワードを生成してください。転記元・転記先どちらで使用する場合も設定が必要です。<br>⚠️ アプリパスワードを未設定の場合、Blueskyは転記先として認識されません。</div>
         </div>
 
         <h3>Misskey.io</h3>
@@ -840,6 +840,12 @@ export const HTML_SETTINGS = `
         const data = await res.json();
         if (data.blueskyHandle) {
           document.getElementById('blueskyHandle').value = data.blueskyHandle;
+        }
+        // アプリパスワード設定済みの場合はプレースホルダーで示す
+        if (data.hasBlueskyAppPassword) {
+          document.getElementById('blueskyAppPassword').placeholder = '設定済み（変更する場合のみ入力）';
+        } else {
+          document.getElementById('blueskyAppPassword').placeholder = '未設定（転記先として使う場合は必須）';
         }
         // 転記元プラットフォームを設定
         const src = data.sourcePlatform || 'bluesky';

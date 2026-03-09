@@ -517,6 +517,14 @@ async function handleQueue(batch, env) {
 
     // 転記先プラットフォームを決定
     const destinations = getDestinationsForUser(userWithId);
+    // 設定済みだが除外されたプラットフォームをデバッグログ出力
+    const allPlatforms = ['bluesky', 'misskey', 'threads'];
+    for (const p of allPlatforms) {
+      if (p === sourcePlatform) continue;
+      if (!DEST_ADAPTERS[p].isConfigured(userWithId)) {
+        console.warn(`User ${userId}: destination "${p}" skipped - not configured (missing credentials)`);
+      }
+    }
     if (destinations.length === 0) {
       console.error(`User ${userId}: No destinations configured`);
       message.ack();
