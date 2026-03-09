@@ -165,7 +165,8 @@ export async function fetchThreadsIdentity(accessToken) {
 
 // 転記元：認証ユーザーの新着投稿をポーリング（古い順で返す）
 export async function fetchThreadsPostsSince({ accessToken, userId, since }) {
-  const fields = 'id,text,media_type,media_url,timestamp,permalink,is_spoiler_media,children{media_url}'; = since
+  const fields = 'id,text,media_type,media_url,timestamp,permalink,is_spoiler_media,children{media_url}';
+  const sinceUnix = since
     ? Math.floor(new Date(since).getTime() / 1000)
     : Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
   const url = `${THREADS_API}/${userId}/threads?fields=${encodeURIComponent(fields)}&since=${sinceUnix}&limit=50&access_token=${accessToken}`;
