@@ -130,28 +130,46 @@ export async function postToThreads({ text, images = [], accessToken }) {
       accessToken,
     });
   } else if (validImages.length === 1) {
-    // 画像1枚
-    creationId = await createContainer({
-      userId,
-      params: { media_type: 'IMAGE', image_url: validImages[0], text },
-      accessToken,
-    });
+    // 画像1枚（失敗時はテキストのみにフォールバック）
+    try {
+      creationId = await createContainer({
+        userId,
+        params: { media_type: 'IMAGE', image_url: validImages[0], text },
+        accessToken,
+      });
+    } catch (e) {
+      console.warn('Threads image upload failed, falling back to text-only:', e.message);
+      creationId = await createContainer({
+        userId,
+        params: { media_type: 'TEXT', text },
+        accessToken,
+      });
+    }
   } else {
-    // カルーセル（複数画像）
-    const childIds = await Promise.all(
-      validImages.map((url) =>
-        createContainer({
-          userId,
-          params: { media_type: 'IMAGE', image_url: url, is_carousel_item: 'true' },
-          accessToken,
-        })
-      )
-    );
-    creationId = await createContainer({
-      userId,
-      params: { media_type: 'CAROUSEL', children: childIds.join(','), text },
-      accessToken,
-    });
+    // カルーセル（複数画像）失敗時はテキストのみにフォールバック
+    try {
+      const childIds = await Promise.all(
+        validImages.map((url) =>
+          createContainer({
+            userId,
+            params: { media_type: 'IMAGE', image_url: url, is_carousel_item: 'true' },
+            accessToken,
+          })
+        )
+      );
+      creationId = await createContainer({
+        userId,
+        params: { media_type: 'CAROUSEL', children: childIds.join(','), text },
+        accessToken,
+      });
+    } catch (e) {
+      console.warn('Threads carousel upload failed, falling back to text-only:', e.message);
+      creationId = await createContainer({
+        userId,
+        params: { media_type: 'TEXT', text },
+        accessToken,
+      });
+    }
   }
 
   const threadId = await publishContainer({ userId, creationId, accessToken });

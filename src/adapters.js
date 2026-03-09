@@ -134,9 +134,11 @@ export const DEST_ADAPTERS = {
 
     async post(_env, userSettings, formatted) {
       return postToBluesky({
-        identifier: userSettings.blueskyHandle,
+        handle: userSettings.blueskyHandle,
         appPassword: userSettings.blueskyAppPassword,
-      }, formatted);
+        text: formatted.text,
+        images: formatted.images,
+      });
     },
   },
 };
