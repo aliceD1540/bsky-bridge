@@ -43,9 +43,12 @@ export function formatPost({ post, sourceUrl, sourcePlatform = 'bluesky', bluesk
     text = `${text} ${quotedUrl}`;
   }
 
-  // センシティブラベルがある場合、画像を転載せずソースポストへのリンクに差し替え
+  // センシティブ/ネタバレラベルがある場合、画像を転載せずソースポストへのリンクに差し替え
   if (labels.length > 0 && images.length > 0) {
-    text = `${text}\n⚠️ このポストにはセンシティブなラベル（${labels.join(', ')}）が付いています。\n画像は転載されません。元ポスト: ${url}`.trim();
+    const labelMsg = (sourcePlatform === 'threads' && labels.includes('spoiler'))
+      ? 'ネタバレタグつきポストです。'
+      : `このポストにはセンシティブなラベル（${labels.join(', ')}）が付いています。`;
+    text = `${text}\n⚠️ ${labelMsg}\n画像は転載されません。元ポスト: ${url}`.trim();
     images = [];
   }
 

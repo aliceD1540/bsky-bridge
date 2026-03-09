@@ -165,8 +165,7 @@ export async function fetchThreadsIdentity(accessToken) {
 
 // 転記元：認証ユーザーの新着投稿をポーリング（古い順で返す）
 export async function fetchThreadsPostsSince({ accessToken, userId, since }) {
-  const fields = 'id,text,media_type,media_url,timestamp,permalink,children{media_url}';
-  const sinceUnix = since
+  const fields = 'id,text,media_type,media_url,timestamp,permalink,is_spoiler_media,children{media_url}'; = since
     ? Math.floor(new Date(since).getTime() / 1000)
     : Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
   const url = `${THREADS_API}/${userId}/threads?fields=${encodeURIComponent(fields)}&since=${sinceUnix}&limit=50&access_token=${accessToken}`;
@@ -182,7 +181,7 @@ export async function fetchThreadsPostsSince({ accessToken, userId, since }) {
 
 // 転記元：単一投稿を取得して正規化する
 export async function fetchThreadsPost(mediaId, accessToken) {
-  const fields = 'id,text,media_type,media_url,timestamp,permalink,children{media_url}';
+  const fields = 'id,text,media_type,media_url,timestamp,permalink,is_spoiler_media,children{media_url}';
   const res = await fetch(
     `${THREADS_API}/${mediaId}?fields=${encodeURIComponent(fields)}&access_token=${accessToken}`
   );
@@ -211,6 +210,7 @@ export function normalizeThreadsPost(post) {
     reply: null,
     type: 'post',
     images,
+    labels: post.is_spoiler_media ? ['spoiler'] : [],
     permalink: post.permalink,
   };
 }
