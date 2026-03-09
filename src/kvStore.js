@@ -36,16 +36,16 @@ export async function storeThreadsToken(env, token, expiresAt) {
   ]);
 }
 
-// D1: ユーザーごとの前回チェック時刻管理
-export async function getLastPostedAt(env, handle) {
-  const row = await env.DB.prepare('SELECT last_posted_at FROM last_checked WHERE handle = ?')
-    .bind(handle)
+// D1: ユーザーごとの前回チェック時刻管理（マルチユーザー対応）
+export async function getLastPostedAt(env, userId) {
+  const row = await env.DB.prepare('SELECT last_posted_at FROM last_checked WHERE user_id = ?')
+    .bind(userId)
     .first();
   return row?.last_posted_at || null;
 }
 
-export async function setLastPostedAt(env, handle, lastPostedAt) {
-  await env.DB.prepare('INSERT OR REPLACE INTO last_checked (handle, last_posted_at) VALUES (?, ?)')
-    .bind(handle, lastPostedAt)
+export async function setLastPostedAt(env, userId, lastPostedAt) {
+  await env.DB.prepare('INSERT OR REPLACE INTO last_checked (user_id, handle, last_posted_at) VALUES (?, ?, ?)')
+    .bind(userId, '', lastPostedAt)
     .run();
 }

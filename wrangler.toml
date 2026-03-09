@@ -8,7 +8,7 @@ workers_dev = true
 crons = ["*/5 * * * *"]
 
 [vars]
-BLUESKY_HANDLE = "project-grimoire.dev"
+APP_URL = "https://bsky-bridge.project-grimoire.dev"
 
 [[kv_namespaces]]
 binding = "KV"

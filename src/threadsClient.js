@@ -2,6 +2,57 @@
 // https://developers.facebook.com/docs/threads/posts
 
 const THREADS_API = 'https://graph.threads.net/v1.0';
+const THREADS_AUTH_URL = 'https://threads.net/oauth/authorize';
+const THREADS_TOKEN_URL = 'https://graph.threads.net/oauth/access_token';
+const THREADS_LONG_LIVED_TOKEN_URL = 'https://graph.threads.net/access_token';
+
+// OAuth認可URLを生成する
+export function buildThreadsAuthUrl({ clientId, redirectUri, state }) {
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    scope: 'threads_basic,threads_content_publish',
+    response_type: 'code',
+    state,
+  });
+  return `${THREADS_AUTH_URL}?${params}`;
+}
+
+// 認可コードを短期トークンに交換する
+export async function exchangeCodeForToken({ code, redirectUri, env }) {
+  const body = new URLSearchParams({
+    client_id: env.THREADS_APP_ID,
+    client_secret: env.THREADS_APP_SECRET,
+    grant_type: 'authorization_code',
+    redirect_uri: redirectUri,
+    code,
+  });
+  const res = await fetch(THREADS_TOKEN_URL, { method: 'POST', body });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Threads code exchange failed: ${res.status} - ${text}`);
+  }
+  const data = await res.json();
+  // data.access_token (短期, 1時間), data.user_id
+  return { accessToken: data.access_token, userId: data.user_id };
+}
+
+// 短期トークンを長期トークン（60日）に交換する
+export async function exchangeForLongLivedToken({ shortLivedToken, env }) {
+  const params = new URLSearchParams({
+    grant_type: 'th_exchange_token',
+    client_secret: env.THREADS_APP_SECRET,
+    access_token: shortLivedToken,
+  });
+  const res = await fetch(`${THREADS_LONG_LIVED_TOKEN_URL}?${params}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Threads long-lived token exchange failed: ${res.status} - ${text}`);
+  }
+  const data = await res.json();
+  // data.access_token, data.expires_in (seconds)
+  return { accessToken: data.access_token, expiresIn: data.expires_in };
+}
 
 async function getUserId(accessToken) {
   const res = await fetch(`${THREADS_API}/me?fields=id&access_token=${accessToken}`);
