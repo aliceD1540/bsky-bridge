@@ -755,6 +755,7 @@ export const HTML_SETTINGS = `
 
         <h3>Threads</h3>
         <div class="form-group">
+          <div class="info">連携ボタンから認証が完了した時点で自動保存されます。保存ボタンの押下は不要です。</div>
           <div id="threadsStatus" class="info">読み込み中...</div>
           <div id="threadsConnected" style="display:none">
             <p id="threadsExpiry"></p>
