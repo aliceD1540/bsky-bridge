@@ -665,7 +665,7 @@ export const HTML_SETTINGS = `
       font-size: 0.9em;
       margin-bottom: 1rem;
     }
-    .right-column {
+    .right-column, .left-column {
       display: flex;
       flex-direction: column;
       gap: 1.5rem;
@@ -695,17 +695,27 @@ export const HTML_SETTINGS = `
   </div>
 
   <div class="columns">
-    <!-- 左カラム: 投稿設定 -->
-    <div class="card">
-      <h2>投稿設定</h2>
-      <p class="info">転記元に選択したプラットフォームの新着投稿が、設定済みの他プラットフォームへ自動転記されます。</p>
-      <form id="settingsForm">
-        <h3>転記元プラットフォーム</h3>
-        <div class="form-group">
-          <label><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"> Bluesky</label><br>
-          <label><input type="radio" name="sourcePlatform" value="misskey" id="srcMisskey"> Misskey.io</label><br>
-          <label><input type="radio" name="sourcePlatform" value="threads" id="srcThreads"> Threads</label>
-        </div>
+    <!-- 左カラム: 転記元指定 / 認証情報 -->
+    <div class="left-column">
+      <div class="card">
+        <h2>転記元指定</h2>
+        <p class="info">選択したプラットフォームの新着投稿が、認証情報を設定済みの他プラットフォームへ自動転記されます。</p>
+        <form id="settingsForm">
+          <div class="form-group">
+            <label><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"> Bluesky</label><br>
+            <label><input type="radio" name="sourcePlatform" value="misskey" id="srcMisskey"> Misskey.io</label><br>
+            <label><input type="radio" name="sourcePlatform" value="threads" id="srcThreads"> Threads</label>
+          </div>
+          <div class="actions">
+            <button type="submit">保存</button>
+          </div>
+          <div id="message"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>認証情報</h2>
+        <p class="info">転記元・転記先として使用するプラットフォームの認証情報を設定してください。</p>
 
         <h3>Bluesky</h3>
         <div class="form-group">
@@ -739,10 +749,10 @@ export const HTML_SETTINGS = `
         </div>
 
         <div class="actions">
-          <button type="submit">保存</button>
+          <button type="button" id="saveCredentialsBtn">保存</button>
         </div>
-        <div id="message"></div>
-      </form>
+        <div id="credentialsMessage"></div>
+      </div>
     </div>
 
     <!-- 右カラム: パスワード変更 / アカウント削除 -->
@@ -886,18 +896,16 @@ export const HTML_SETTINGS = `
 
     loadSettings();
 
+    // 転記元指定フォームの保存
     document.getElementById('settingsForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const messageDiv = document.getElementById('message');
-      
+
       const sourcePlatformRadio = document.querySelector('input[name="sourcePlatform"]:checked');
       const settings = {
         sourcePlatform: sourcePlatformRadio ? sourcePlatformRadio.value : 'bluesky',
-        blueskyHandle: document.getElementById('blueskyHandle').value,
-        blueskyAppPassword: document.getElementById('blueskyAppPassword').value,
-        misskeyToken: document.getElementById('misskeyToken').value,
       };
-      
+
       try {
         const res = await fetch('/api/settings', {
           method: 'POST',
@@ -905,20 +913,41 @@ export const HTML_SETTINGS = `
           credentials: 'same-origin',
           body: JSON.stringify(settings),
         });
-        
-        if (res.status === 401) {
-          window.location.href = '/login';
-          return;
-        }
-        
+
+        if (res.status === 401) { window.location.href = '/login'; return; }
+
         const data = await res.json();
-        if (data.success) {
-          messageDiv.className = 'success';
-          messageDiv.textContent = '設定を保存しました';
-        } else {
-          messageDiv.className = 'error';
-          messageDiv.textContent = data.error || '保存に失敗しました';
-        }
+        messageDiv.className = data.success ? 'success' : 'error';
+        messageDiv.textContent = data.success ? '転記元を保存しました' : (data.error || '保存に失敗しました');
+      } catch (err) {
+        messageDiv.className = 'error';
+        messageDiv.textContent = 'エラーが発生しました';
+      }
+    });
+
+    // 認証情報の保存
+    document.getElementById('saveCredentialsBtn').addEventListener('click', async () => {
+      const messageDiv = document.getElementById('credentialsMessage');
+
+      const settings = {
+        blueskyHandle: document.getElementById('blueskyHandle').value,
+        blueskyAppPassword: document.getElementById('blueskyAppPassword').value,
+        misskeyToken: document.getElementById('misskeyToken').value,
+      };
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(settings),
+        });
+
+        if (res.status === 401) { window.location.href = '/login'; return; }
+
+        const data = await res.json();
+        messageDiv.className = data.success ? 'success' : 'error';
+        messageDiv.textContent = data.success ? '認証情報を保存しました' : (data.error || '保存に失敗しました');
       } catch (err) {
         messageDiv.className = 'error';
         messageDiv.textContent = 'エラーが発生しました';
