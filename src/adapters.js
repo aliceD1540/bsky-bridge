@@ -18,6 +18,7 @@ import {
   postToThreads,
 } from './threadsClient.js';
 import { getCachedSourceIdentity, setCachedSourceIdentity } from './kvStore.js';
+import { proxyImages } from './mediaProxy.js';
 
 // ソースアダプター定義
 export const SOURCE_ADAPTERS = {
@@ -122,8 +123,10 @@ export const DEST_ADAPTERS = {
       return !!(userSettings.threadsToken);
     },
 
-    async post(_env, userSettings, formatted) {
-      return postToThreads({ text: formatted.text, images: formatted.images, accessToken: userSettings.threadsToken });
+    async post(env, userSettings, formatted) {
+      // Threads CDN が直接取得できない画像URLをWorker経由でプロキシ
+      const images = await proxyImages(formatted.images || [], env);
+      return postToThreads({ text: formatted.text, images, accessToken: userSettings.threadsToken });
     },
   },
 

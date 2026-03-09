@@ -8,6 +8,7 @@ import { register, login, logout, verifySession, changePassword, deleteAccount }
 import { saveSettings, getSettings, getPublicSettings, getAllUserSettings } from './settings.js';
 import { SOURCE_ADAPTERS, DEST_ADAPTERS, getDestinationsForUser } from './adapters.js';
 import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS } from './html.js';
+import { serveProxiedImage } from './mediaProxy.js';
 
 export default {
   async fetch(request, env) {
@@ -191,6 +192,12 @@ async function handleRequest(request, env) {
       status: result.success ? 200 : (result.error === 'Unauthorized' ? 401 : 400),
       headers: { 'Content-Type': 'application/json' },
     });
+  }
+
+  // メディアプロキシ: Threads CDN が直接取得できない画像を配信する
+  if (path.startsWith('/media/') && request.method === 'GET') {
+    const key = path.slice(7);
+    return serveProxiedImage(key, env);
   }
 
   if (path === '/api/settings' && request.method === 'GET') {
