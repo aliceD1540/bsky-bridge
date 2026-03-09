@@ -1,17 +1,12 @@
 // Cloudflare Worker entry point
 
-import { fetchBlueskyPosts, fetchBlueskyPostByUri, verifyBlueskyCredentials } from './blueskyClient.js';
-import { postToThreads, refreshThreadsToken, buildThreadsAuthUrl, exchangeCodeForToken, exchangeForLongLivedToken } from './threadsClient.js';
-import { postToMisskey } from './misskeyClient.js';
-import {
-  isPosted,
-  markPosted,
-  getLastPostedAt,
-  setLastPostedAt,
-} from './kvStore.js';
+import { fetchBlueskyPostByUri, verifyBlueskyCredentials } from './blueskyClient.js';
+import { refreshThreadsToken, buildThreadsAuthUrl, exchangeCodeForToken, exchangeForLongLivedToken } from './threadsClient.js';
+import { isPosted, markPosted, getLastPostedAt, setLastPostedAt } from './kvStore.js';
 import { formatPost } from './formatPost.js';
 import { register, login, logout, verifySession, changePassword, deleteAccount } from './auth.js';
 import { saveSettings, getSettings, getPublicSettings, getAllUserSettings } from './settings.js';
+import { SOURCE_ADAPTERS, DEST_ADAPTERS, getDestinationsForUser } from './adapters.js';
 import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS } from './html.js';
 
 export default {
@@ -225,22 +220,22 @@ async function handleRequest(request, env) {
     const settings = await request.json();
 
     // Bluesky認証検証:
-    // - ハンドルが変更される場合はパスワード必須
-    // - ハンドルが変わらなくてもパスワードが指定された場合は検証
+    // - ハンドルが変更される場合はアプリパスワード必須
+    // - アプリパスワードが指定された場合は検証してから保存
     if (settings.blueskyHandle) {
       const existing = await getPublicSettings(env, session.userId);
       const handleChanged = settings.blueskyHandle !== existing?.blueskyHandle;
 
-      if (handleChanged && !settings.blueskyPassword) {
+      if (handleChanged && !settings.blueskyAppPassword) {
         return new Response(JSON.stringify({ error: 'ハンドルを変更する場合はアプリパスワードの入力が必要です。' }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
       }
 
-      if (settings.blueskyPassword) {
+      if (settings.blueskyAppPassword) {
         try {
-          await verifyBlueskyCredentials(settings.blueskyHandle, settings.blueskyPassword);
+          await verifyBlueskyCredentials(settings.blueskyHandle, settings.blueskyAppPassword);
         } catch (e) {
           return new Response(JSON.stringify({ error: 'Bluesky認証に失敗しました。ハンドルとアプリパスワードを確認してください。' }), {
             status: 400,
@@ -390,8 +385,8 @@ async function checkAndEnqueueAll(env) {
   const userSettings = await getAllUserSettings(env);
 
   if (userSettings.length === 0) {
-    console.log('No users with Bluesky settings');
-    return new Response('No users to check', { status: 200 });
+    console.log('No configured users found');
+    return;
   }
 
   let totalEnqueued = 0;
@@ -406,70 +401,85 @@ async function checkAndEnqueueAll(env) {
   }
 
   console.log(`Total enqueued posts: ${totalEnqueued}`);
-  return new Response(`Enqueued ${totalEnqueued} posts`, { status: 200 });
 }
 
 async function checkAndEnqueueForUser(env, user) {
-  const { userId, userCreatedAt, blueskyHandle } = user;
+  const { userId, userCreatedAt, sourcePlatform } = user;
+  const adapter = SOURCE_ADAPTERS[sourcePlatform];
 
-  if (!blueskyHandle) {
+  if (!adapter || !adapter.isConfigured(user)) {
     return 0;
   }
 
-  // D1から前回チェック時刻を取得（未設定の場合はユーザー登録日時にフォールバック）
-  const lastPostedAt = await getLastPostedAt(env, userId);
+  // プラットフォームごとに前回チェック時刻を管理
+  const lastPostedAt = await getLastPostedAt(env, userId, sourcePlatform);
   const since = lastPostedAt || userCreatedAt;
+
+  // ソースアダプター用に userId を userSettings に合流させる
+  const userWithId = { ...user, userId };
 
   let posts;
   try {
-    posts = await fetchBlueskyPosts({ handle: blueskyHandle, since });
+    posts = await adapter.pollNewPosts(env, userWithId, since);
   } catch (e) {
-    console.error(`Bluesky fetch error for user ${userId}:`, e);
+    console.error(`${sourcePlatform} fetch error for user ${userId}:`, e);
     return 0;
   }
+
+  // ポストIDのキーはプラットフォームごとに異なる
+  const getPostId = (post) => post.uri || post.id;
 
   // 投稿済みのポストを除外
   const newPosts = [];
   for (const post of posts) {
-    if (!post.uri) continue;
-    if (!(await isPosted(env, post.uri))) {
+    const id = getPostId(post);
+    if (!id) continue;
+    if (!(await isPosted(env, `${sourcePlatform}:${id}`))) {
       newPosts.push(post);
     }
   }
 
-  if (newPosts.length === 0) {
-    return 0;
+  if (newPosts.length === 0) return 0;
+
+  // ハンドル取得（URL構築とログ用）
+  let handle = user.blueskyHandle || '';
+  try {
+    const identity = await adapter.getIdentity(env, userWithId);
+    handle = identity.handle || identity.username || handle;
+  } catch (e) {
+    console.warn(`Could not get identity for user ${userId} on ${sourcePlatform}:`, e);
   }
 
-  // 古い順にキューへ追加（fetchBlueskyPostsは昇順ソート済み）
-  // 投稿先APIのレート制限対策として5秒ずつずらして配信する
+  // 古い順にキューへ追加（at-least-once配信のため5秒ずつ遅延）
   for (let i = 0; i < newPosts.length; i++) {
     const post = newPosts[i];
-    await env.QUEUE.send({ 
-      postUri: post.uri, 
+    await env.QUEUE.send({
+      postId: getPostId(post),
       userId,
-      handle: blueskyHandle,
-      postType: post.type,
+      sourcePlatform,
+      handle,
+      postType: post.type || 'post',
       repostUrl: post.repostUrl || null,
     }, { delaySeconds: i * 5 });
   }
 
-  // 最新ポストの作成時刻をD1に保存（次回cronのsince基準点）
+  // 最新ポストの時刻を保存（次回cronのsince基準点）
   const newestPost = newPosts[newPosts.length - 1];
-  await setLastPostedAt(env, userId, newestPost.createdAt);
+  await setLastPostedAt(env, userId, newestPost.createdAt, sourcePlatform);
 
-  console.log(`User ${userId}: Enqueued ${newPosts.length} posts, last_posted_at: ${newestPost.createdAt}`);
+  console.log(`User ${userId} (${sourcePlatform}): Enqueued ${newPosts.length} posts`);
   return newPosts.length;
 }
 
-// queueハンドラ: キューからポストを取り出してThreads/Misskeyに投稿する
+// queueハンドラ: キューからポストを取り出して各転記先に投稿する
 async function handleQueue(batch, env) {
   for (const message of batch.messages) {
-    const { postUri, userId, handle, postType, repostUrl } = message.body;
+    const { postId, userId, sourcePlatform, handle, postType, repostUrl } = message.body;
+    const kvKey = `${sourcePlatform}:${postId}`;
 
-    // 冪等性チェック（キューのat-least-once配信に対応）
-    if (await isPosted(env, postUri)) {
-      console.log('Already posted, skipping:', postUri);
+    // 冪等性チェック
+    if (await isPosted(env, kvKey)) {
+      console.log('Already posted, skipping:', kvKey);
       message.ack();
       continue;
     }
@@ -482,79 +492,92 @@ async function handleQueue(batch, env) {
       continue;
     }
 
-    const MISSKEY_TOKEN = userSettings.misskeyToken;
-    const THREADS_TOKEN = await getEffectiveThreadsToken(env, {
-      userId,
-      threadsToken: userSettings.threadsToken,
-      threadsTokenExpiresAt: userSettings.threadsTokenExpiresAt,
-    });
+    // Threads トークンのリフレッシュ（必要な場合）
+    if (userSettings.threadsToken) {
+      userSettings.threadsToken = await getEffectiveThreadsToken(env, {
+        userId,
+        threadsToken: userSettings.threadsToken,
+        threadsTokenExpiresAt: userSettings.threadsTokenExpiresAt,
+      });
+    }
 
-    if (!THREADS_TOKEN && !MISSKEY_TOKEN) {
-      console.error(`User ${userId}: No SNS tokens configured`);
+    const userWithId = { ...userSettings, userId };
+
+    // 転記先プラットフォームを決定
+    const destinations = getDestinationsForUser(userWithId);
+    if (destinations.length === 0) {
+      console.error(`User ${userId}: No destinations configured`);
       message.ack();
       continue;
     }
 
-    // Blueskyからポスト内容を取得
+    // ソースからポストを取得・正規化
+    const sourceAdapter = SOURCE_ADAPTERS[sourcePlatform];
     let post;
     try {
-      post = await fetchBlueskyPostByUri(postUri);
+      post = await sourceAdapter.fetchAndNormalizePost(env, userWithId, postId);
     } catch (e) {
-      console.error('Bluesky fetch error for post:', postUri, e);
+      console.error(`Fetch error for post ${postId} (${sourcePlatform}):`, e);
       message.retry();
       continue;
     }
 
     if (!post) {
-      console.warn('Post not found on Bluesky, skipping:', postUri);
+      console.warn('Post not found, skipping:', postId);
       message.ack();
       continue;
     }
 
-    // fetchBlueskyPostByUri は reason を持たないため、キューに保存したtype/repostUrlで補完
     if (postType) post.type = postType;
     if (repostUrl) post.repostUrl = repostUrl;
 
-    const rkey = postUri.split('/').pop();
-    const blueskyUrl = `https://bsky.app/profile/${handle}/post/${rkey}`;
-    const formatted = formatPost({ post, blueskyUrl });
+    // プラットフォーム別のソースURL構築
+    const sourceUrl = buildSourceUrl(sourcePlatform, handle, post, env);
+    const formatted = formatPost({ post, sourceUrl, sourcePlatform });
 
     if (!formatted) {
-      // リプライや無効なポストはスキップ
-      console.log('Post skipped (reply or unsupported type):', postUri);
+      console.log('Post skipped (reply or unsupported type):', postId);
       message.ack();
       continue;
     }
 
     try {
-      const promises = [];
+      const results = await Promise.allSettled(
+        destinations.map((platform) =>
+          DEST_ADAPTERS[platform].post(env, userWithId, formatted)
+        )
+      );
 
-      if (THREADS_TOKEN) {
-        promises.push(postToThreads({ text: formatted.text, images: formatted.images, accessToken: THREADS_TOKEN }));
-      }
-      if (MISSKEY_TOKEN) {
-        promises.push(postToMisskey({ text: formatted.text, images: formatted.images, token: MISSKEY_TOKEN }));
-      }
-
-      const results = await Promise.all(promises);
-      const threadsRes = THREADS_TOKEN ? results[0] : null;
-      const misskeyRes = MISSKEY_TOKEN ? results[THREADS_TOKEN ? 1 : 0] : null;
-
-      const threadsOk = !THREADS_TOKEN || threadsRes?.success;
-      const misskeyOk = !MISSKEY_TOKEN || misskeyRes !== undefined;
-
-      if (threadsOk && misskeyOk) {
-        await markPosted(env, postUri, post.createdAt);
-        const targets = [THREADS_TOKEN && 'Threads', MISSKEY_TOKEN && 'Misskey'].filter(Boolean).join(' and ');
-        console.log(`User ${userId}: Posted to ${targets}:`, postUri);
-        message.ack();
-      } else {
-        console.error(`User ${userId}: Post failed - Threads: ${threadsRes?.success}, Misskey: ${misskeyOk}`);
+      const failed = results.filter((r) => r.status === 'rejected');
+      if (failed.length > 0) {
+        failed.forEach((r) => console.error(`Post failed for user ${userId}:`, r.reason));
+        // 一部でも失敗した場合はリトライ（at-least-once）
         message.retry();
+      } else {
+        await markPosted(env, kvKey, post.createdAt);
+        console.log(`User ${userId}: Posted to [${destinations.join(', ')}]:`, postId);
+        message.ack();
       }
     } catch (e) {
       console.error(`User ${userId}: Post error:`, e);
       message.retry();
     }
+  }
+}
+
+function buildSourceUrl(sourcePlatform, handle, post, env) {
+  switch (sourcePlatform) {
+    case 'bluesky': {
+      const rkey = (post.uri || '').split('/').pop();
+      return `https://bsky.app/profile/${handle}/post/${rkey}`;
+    }
+    case 'misskey': {
+      const instance = env.MISSKEY_INSTANCE || 'misskey.io';
+      return `https://${instance}/@${handle}/${post.uri || post.id}`;
+    }
+    case 'threads':
+      return post.permalink || `https://www.threads.net/@${handle}`;
+    default:
+      return '';
   }
 }

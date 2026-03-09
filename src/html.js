@@ -698,28 +698,34 @@ export const HTML_SETTINGS = `
     <!-- 左カラム: 投稿設定 -->
     <div class="card">
       <h2>投稿設定</h2>
+      <p class="info">転記元に選択したプラットフォームの新着投稿が、設定済みの他プラットフォームへ自動転記されます。</p>
       <form id="settingsForm">
-        <h3>転記元</h3>
-        <h4>Bluesky</h4>
+        <h3>転記元プラットフォーム</h3>
+        <div class="form-group">
+          <label><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"> Bluesky</label><br>
+          <label><input type="radio" name="sourcePlatform" value="misskey" id="srcMisskey"> Misskey.io</label><br>
+          <label><input type="radio" name="sourcePlatform" value="threads" id="srcThreads"> Threads</label>
+        </div>
+
+        <h3>Bluesky</h3>
         <div class="form-group">
           <label for="blueskyHandle">アカウント名</label>
           <input type="text" id="blueskyHandle" placeholder="example.bsky.social">
         </div>
         <div class="form-group">
-          <label for="blueskyPassword">アプリパスワード</label>
-          <input type="password" id="blueskyPassword" placeholder="変更しない場合は空欄のまま">
-          <div class="info">Blueskyの設定からアプリパスワードを生成してください。</div>
+          <label for="blueskyAppPassword">アプリパスワード</label>
+          <input type="password" id="blueskyAppPassword" placeholder="変更しない場合は空欄のまま">
+          <div class="info">Blueskyの設定からアプリパスワードを生成してください。転記元・転記先どちらの場合も必要です。</div>
         </div>
 
-        <h3>転記先</h3>
-        <h4>Misskey.io</h4>
+        <h3>Misskey.io</h3>
         <div class="form-group">
           <label for="misskeyToken">アクセストークン</label>
           <input type="password" id="misskeyToken" placeholder="変更しない場合は空欄のまま">
           <div class="info">Misskey.ioの設定から「ドライブを操作する」「ノートを作成・削除する」の権限を持つアクセストークンを生成してください。</div>
         </div>
 
-        <h4>Threads</h4>
+        <h3>Threads</h3>
         <div class="form-group">
           <div id="threadsStatus" class="info">読み込み中...</div>
           <div id="threadsConnected" style="display:none">
@@ -793,6 +799,10 @@ export const HTML_SETTINGS = `
         if (data.blueskyHandle) {
           document.getElementById('blueskyHandle').value = data.blueskyHandle;
         }
+        // 転記元プラットフォームを設定
+        const src = data.sourcePlatform || 'bluesky';
+        const radio = document.querySelector(`input[name="sourcePlatform"][value="${src}"]`);
+        if (radio) radio.checked = true;
         updateThreadsStatus(data);
       } catch (err) {
         console.error('設定の読み込みに失敗しました', err);
@@ -880,9 +890,11 @@ export const HTML_SETTINGS = `
       e.preventDefault();
       const messageDiv = document.getElementById('message');
       
+      const sourcePlatformRadio = document.querySelector('input[name="sourcePlatform"]:checked');
       const settings = {
+        sourcePlatform: sourcePlatformRadio ? sourcePlatformRadio.value : 'bluesky',
         blueskyHandle: document.getElementById('blueskyHandle').value,
-        blueskyPassword: document.getElementById('blueskyPassword').value,
+        blueskyAppPassword: document.getElementById('blueskyAppPassword').value,
         misskeyToken: document.getElementById('misskeyToken').value,
       };
       

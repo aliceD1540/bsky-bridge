@@ -152,3 +152,65 @@ export async function postToThreads({ text, images = [], accessToken }) {
   if (threadId === null) return { success: false, limitReached: true };
   return { success: true, threadId };
 }
+
+// 転記元：認証ユーザーの識別情報を取得（ユーザーIDとユーザー名）
+export async function fetchThreadsIdentity(accessToken) {
+  const res = await fetch(`${THREADS_API}/me?fields=id,username&access_token=${accessToken}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Threads /me failed: ${res.status} - ${body}`);
+  }
+  return await res.json(); // { id, username }
+}
+
+// 転記元：認証ユーザーの新着投稿をポーリング（古い順で返す）
+export async function fetchThreadsPostsSince({ accessToken, userId, since }) {
+  const fields = 'id,text,media_type,media_url,timestamp,permalink,children{media_url}';
+  const sinceUnix = since
+    ? Math.floor(new Date(since).getTime() / 1000)
+    : Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
+  const url = `${THREADS_API}/${userId}/threads?fields=${encodeURIComponent(fields)}&since=${sinceUnix}&limit=50&access_token=${accessToken}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Threads /${userId}/threads failed: ${res.status} - ${text}`);
+  }
+  const data = await res.json();
+  // timestamp で古い順に揃える
+  return (data.data || []).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+}
+
+// 転記元：単一投稿を取得して正規化する
+export async function fetchThreadsPost(mediaId, accessToken) {
+  const fields = 'id,text,media_type,media_url,timestamp,permalink,children{media_url}';
+  const res = await fetch(
+    `${THREADS_API}/${mediaId}?fields=${encodeURIComponent(fields)}&access_token=${accessToken}`
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Threads fetchPost failed: ${res.status} - ${body}`);
+  }
+  return await res.json();
+}
+
+// Threads 投稿を formatPost が扱える共通フォーマットに変換
+export function normalizeThreadsPost(post) {
+  const images = [];
+  if (post.media_type === 'IMAGE' && post.media_url) {
+    images.push(post.media_url);
+  } else if (post.media_type === 'CAROUSEL' && post.children?.data) {
+    for (const child of post.children.data) {
+      if (child.media_url) images.push(child.media_url);
+    }
+  }
+
+  return {
+    uri: post.id,
+    createdAt: post.timestamp,
+    text: post.text || '',
+    reply: null,
+    type: 'post',
+    images,
+    permalink: post.permalink,
+  };
+}
