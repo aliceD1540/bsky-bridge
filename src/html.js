@@ -638,6 +638,8 @@ export const HTML_SETTINGS = `
     .radio-label input[type="radio"] {
       margin: 0;
       flex-shrink: 0;
+      width: auto;
+      padding: 0;
     }
     .actions {
       display: flex;
