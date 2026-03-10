@@ -4,10 +4,10 @@ import { fetchBlueskyPostByUri, verifyBlueskyCredentials } from './blueskyClient
 import { refreshThreadsToken, buildThreadsAuthUrl, exchangeCodeForToken, exchangeForLongLivedToken } from './threadsClient.js';
 import { isPosted, markPosted, getLastPostedAt, setLastPostedAt } from './kvStore.js';
 import { formatPost } from './formatPost.js';
-import { register, login, logout, verifySession, changePassword, deleteAccount } from './auth.js';
+import { register, login, logout, verifySession, changePassword, deleteAccount, verifyEmail, requestPasswordReset, resetPassword } from './auth.js';
 import { saveSettings, getSettings, getPublicSettings, getAllUserSettings } from './settings.js';
 import { SOURCE_ADAPTERS, DEST_ADAPTERS, getDestinationsForUser } from './adapters.js';
-import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS } from './html.js';
+import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS, HTML_VERIFY_EMAIL, HTML_FORGOT_PASSWORD, HTML_RESET_PASSWORD } from './html.js';
 import { serveProxiedImage } from './mediaProxy.js';
 
 export default {
@@ -190,6 +190,33 @@ async function handleRequest(request, env) {
     const result = await deleteAccount(env, sessionToken, password);
     return new Response(JSON.stringify(result), {
       status: result.success ? 200 : (result.error === 'Unauthorized' ? 401 : 400),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (path === '/api/verify-email' && request.method === 'POST') {
+    const { token } = await request.json();
+    const result = await verifyEmail(env, token);
+    return new Response(JSON.stringify(result), {
+      status: result.success ? 200 : 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (path === '/api/forgot-password' && request.method === 'POST') {
+    const { email } = await request.json();
+    const result = await requestPasswordReset(env, email);
+    return new Response(JSON.stringify(result), {
+      status: result.success ? 200 : 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (path === '/api/reset-password' && request.method === 'POST') {
+    const { token, password } = await request.json();
+    const result = await resetPassword(env, token, password);
+    return new Response(JSON.stringify(result), {
+      status: result.success ? 200 : 400,
       headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -378,7 +405,7 @@ async function handleRequest(request, env) {
   if (path === '/') {
     return Response.redirect(new URL('/login', request.url).toString(), 302);
   }
-  if (path === '/login' || path === '/register' || path === '/settings') {
+  if (path === '/login' || path === '/register' || path === '/settings' || path === '/verify-email' || path === '/forgot-password' || path === '/reset-password') {
     return serveHTML(env, path);
   }
 
@@ -391,6 +418,9 @@ function serveHTML(env, path) {
     '/login': HTML_LOGIN,
     '/register': HTML_REGISTER,
     '/settings': HTML_SETTINGS,
+    '/verify-email': HTML_VERIFY_EMAIL,
+    '/forgot-password': HTML_FORGOT_PASSWORD,
+    '/reset-password': HTML_RESET_PASSWORD,
   };
   
   const html = pages[path] || pages['/'];

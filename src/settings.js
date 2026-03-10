@@ -168,6 +168,14 @@ export async function getSettings(env, userId) {
 
 // 公開用設定取得（トークン有無のみ、値は含まない）
 export async function getPublicSettings(env, userId) {
+  const userRow = await env.DB.prepare(`
+    SELECT email_verified
+    FROM users
+    WHERE id = ?
+  `)
+    .bind(userId)
+    .first();
+
   const row = await env.DB.prepare(`
     SELECT
       source_platform,
@@ -182,9 +190,20 @@ export async function getPublicSettings(env, userId) {
     .bind(userId)
     .first();
 
-  if (!row) return null;
+  if (!row) {
+    return {
+      emailVerified: userRow ? (userRow.email_verified === 1) : false,
+      sourcePlatform: 'bluesky',
+      blueskyHandle: null,
+      hasBlueskyAppPassword: false,
+      hasMisskeyToken: false,
+      hasThreadsToken: false,
+      threadsTokenExpiresAt: null,
+    };
+  }
 
   return {
+    emailVerified: userRow ? (userRow.email_verified === 1) : false,
     sourcePlatform: row.source_platform || 'bluesky',
     blueskyHandle: row.bluesky_handle,
     hasBlueskyAppPassword: !!(row.bluesky_app_password_encrypted),
@@ -200,6 +219,7 @@ export async function getAllUserSettings(env) {
     SELECT
       u.id as user_id,
       u.created_at as user_created_at,
+      u.email_verified,
       s.source_platform,
       s.bluesky_handle,
       s.bluesky_app_password_encrypted,
@@ -212,9 +232,12 @@ export async function getAllUserSettings(env) {
     FROM users u
     LEFT JOIN user_settings s ON u.id = s.user_id
     WHERE
-      (s.source_platform = 'bluesky' AND s.bluesky_handle IS NOT NULL)
-      OR (s.source_platform = 'misskey' AND s.misskey_token_encrypted IS NOT NULL)
-      OR (s.source_platform = 'threads' AND s.threads_token_encrypted IS NOT NULL)
+      u.email_verified = 1
+      AND (
+        (s.source_platform = 'bluesky' AND s.bluesky_handle IS NOT NULL)
+        OR (s.source_platform = 'misskey' AND s.misskey_token_encrypted IS NOT NULL)
+        OR (s.source_platform = 'threads' AND s.threads_token_encrypted IS NOT NULL)
+      )
   `).all();
 
   const settings = [];
