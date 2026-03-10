@@ -5,7 +5,9 @@ import { encrypt, decrypt } from './crypto.js';
 // 設定保存
 export async function saveSettings(env, userId, settings) {
   const {
+    sourcePlatform,
     blueskyHandle,
+    blueskyAppPassword,
     misskeyToken,
     threadsToken,
     threadsTokenExpiresAt,
@@ -16,7 +18,10 @@ export async function saveSettings(env, userId, settings) {
   // 既存設定の確認（空欄フィールドは既存値を維持するために全カラム取得）
   const existing = await env.DB.prepare(`
     SELECT
+      source_platform,
       bluesky_handle,
+      bluesky_app_password_encrypted,
+      bluesky_app_password_iv,
       misskey_token_encrypted,
       misskey_token_iv,
       threads_token_encrypted,
@@ -27,26 +32,42 @@ export async function saveSettings(env, userId, settings) {
     .bind(userId)
     .first();
 
+  // undefinedまたは空文字は既存値を維持、nullは明示クリア、文字列は再暗号化
+  const encryptOrKeep = async (newVal, encField, ivField) => {
+    if (newVal) return encrypt(newVal, env);
+    if (newVal === null) return { cipherText: null, iv: null };
+    return { cipherText: existing?.[encField] ?? null, iv: existing?.[ivField] ?? null };
+  };
+
+  const blueskyAppPasswordEnc = await encryptOrKeep(
+    blueskyAppPassword,
+    'bluesky_app_password_encrypted',
+    'bluesky_app_password_iv'
+  );
+  const misskeyTokenEnc = await encryptOrKeep(
+    misskeyToken,
+    'misskey_token_encrypted',
+    'misskey_token_iv'
+  );
+  const threadsTokenEnc = await encryptOrKeep(
+    threadsToken,
+    'threads_token_encrypted',
+    'threads_token_iv'
+  );
+
+  const newThreadsExpiresAt = threadsTokenExpiresAt === undefined
+    ? (existing?.threads_token_expires_at ?? null)
+    : threadsTokenExpiresAt;
+  const newSourcePlatform = sourcePlatform || existing?.source_platform || 'bluesky';
+  const newBlueskyHandle = blueskyHandle || existing?.bluesky_handle || null;
+
   if (existing) {
-    // undefinedまたは空文字の場合は既存値を維持、nullの場合はクリア、文字列の場合は再暗号化
-    const misskeyTokenEnc = misskeyToken
-      ? await encrypt(misskeyToken, env)
-      : { cipherText: existing.misskey_token_encrypted, iv: existing.misskey_token_iv };
-    const threadsTokenEnc = threadsToken
-      ? await encrypt(threadsToken, env)
-      : threadsToken === null
-        ? { cipherText: null, iv: null }
-        : { cipherText: existing.threads_token_encrypted, iv: existing.threads_token_iv };
-
-    // threadsTokenExpiresAt: nullは明示クリア、undefinedは既存値維持
-    const newThreadsExpiresAt = threadsTokenExpiresAt === undefined
-      ? existing.threads_token_expires_at
-      : threadsTokenExpiresAt;
-
-    // 更新
     await env.DB.prepare(`
       UPDATE user_settings SET
+        source_platform = ?,
         bluesky_handle = ?,
+        bluesky_app_password_encrypted = ?,
+        bluesky_app_password_iv = ?,
         misskey_token_encrypted = ?,
         misskey_token_iv = ?,
         threads_token_encrypted = ?,
@@ -56,7 +77,10 @@ export async function saveSettings(env, userId, settings) {
       WHERE user_id = ?
     `)
       .bind(
-        blueskyHandle || existing.bluesky_handle || null,
+        newSourcePlatform,
+        newBlueskyHandle,
+        blueskyAppPasswordEnc.cipherText,
+        blueskyAppPasswordEnc.iv,
         misskeyTokenEnc.cipherText,
         misskeyTokenEnc.iv,
         threadsTokenEnc.cipherText,
@@ -67,34 +91,32 @@ export async function saveSettings(env, userId, settings) {
       )
       .run();
   } else {
-    // 新規作成
-    const misskeyTokenEnc = misskeyToken
-      ? await encrypt(misskeyToken, env)
-      : { cipherText: null, iv: null };
-    const threadsTokenEnc = threadsToken
-      ? await encrypt(threadsToken, env)
-      : { cipherText: null, iv: null };
-
     await env.DB.prepare(`
       INSERT INTO user_settings (
         user_id,
+        source_platform,
         bluesky_handle,
+        bluesky_app_password_encrypted,
+        bluesky_app_password_iv,
         misskey_token_encrypted,
         misskey_token_iv,
         threads_token_encrypted,
         threads_token_iv,
         threads_token_expires_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         userId,
-        blueskyHandle || null,
+        newSourcePlatform,
+        newBlueskyHandle,
+        blueskyAppPasswordEnc.cipherText,
+        blueskyAppPasswordEnc.iv,
         misskeyTokenEnc.cipherText,
         misskeyTokenEnc.iv,
         threadsTokenEnc.cipherText,
         threadsTokenEnc.iv,
-        threadsTokenExpiresAt || null,
+        threadsTokenExpiresAt ?? null,
         now
       )
       .run();
@@ -103,11 +125,14 @@ export async function saveSettings(env, userId, settings) {
   return { success: true };
 }
 
-// 設定取得
+// 設定取得（復号済み）
 export async function getSettings(env, userId) {
   const row = await env.DB.prepare(`
     SELECT
+      source_platform,
       bluesky_handle,
+      bluesky_app_password_encrypted,
+      bluesky_app_password_iv,
       misskey_token_encrypted,
       misskey_token_iv,
       threads_token_encrypted,
@@ -119,10 +144,11 @@ export async function getSettings(env, userId) {
     .bind(userId)
     .first();
 
-  if (!row) {
-    return null;
-  }
+  if (!row) return null;
 
+  const blueskyAppPassword = row.bluesky_app_password_encrypted
+    ? await decrypt(row.bluesky_app_password_encrypted, row.bluesky_app_password_iv, env)
+    : null;
   const misskeyToken = row.misskey_token_encrypted
     ? await decrypt(row.misskey_token_encrypted, row.misskey_token_iv, env)
     : null;
@@ -131,18 +157,22 @@ export async function getSettings(env, userId) {
     : null;
 
   return {
+    sourcePlatform: row.source_platform || 'bluesky',
     blueskyHandle: row.bluesky_handle,
+    blueskyAppPassword,
     misskeyToken,
     threadsToken,
     threadsTokenExpiresAt: row.threads_token_expires_at,
   };
 }
 
-// 公開用設定取得（パスワード等を含まない）
+// 公開用設定取得（トークン有無のみ、値は含まない）
 export async function getPublicSettings(env, userId) {
   const row = await env.DB.prepare(`
     SELECT
+      source_platform,
       bluesky_handle,
+      bluesky_app_password_encrypted,
       misskey_token_encrypted,
       threads_token_encrypted,
       threads_token_expires_at
@@ -152,12 +182,12 @@ export async function getPublicSettings(env, userId) {
     .bind(userId)
     .first();
 
-  if (!row) {
-    return null;
-  }
+  if (!row) return null;
 
   return {
+    sourcePlatform: row.source_platform || 'bluesky',
     blueskyHandle: row.bluesky_handle,
+    hasBlueskyAppPassword: !!(row.bluesky_app_password_encrypted),
     hasMisskeyToken: !!(row.misskey_token_encrypted),
     hasThreadsToken: !!(row.threads_token_encrypted),
     threadsTokenExpiresAt: row.threads_token_expires_at,
@@ -170,7 +200,10 @@ export async function getAllUserSettings(env) {
     SELECT
       u.id as user_id,
       u.created_at as user_created_at,
+      s.source_platform,
       s.bluesky_handle,
+      s.bluesky_app_password_encrypted,
+      s.bluesky_app_password_iv,
       s.misskey_token_encrypted,
       s.misskey_token_iv,
       s.threads_token_encrypted,
@@ -178,11 +211,17 @@ export async function getAllUserSettings(env) {
       s.threads_token_expires_at
     FROM users u
     LEFT JOIN user_settings s ON u.id = s.user_id
-    WHERE s.bluesky_handle IS NOT NULL
+    WHERE
+      (s.source_platform = 'bluesky' AND s.bluesky_handle IS NOT NULL)
+      OR (s.source_platform = 'misskey' AND s.misskey_token_encrypted IS NOT NULL)
+      OR (s.source_platform = 'threads' AND s.threads_token_encrypted IS NOT NULL)
   `).all();
 
   const settings = [];
   for (const row of rows.results || []) {
+    const blueskyAppPassword = row.bluesky_app_password_encrypted
+      ? await decrypt(row.bluesky_app_password_encrypted, row.bluesky_app_password_iv, env)
+      : null;
     const misskeyToken = row.misskey_token_encrypted
       ? await decrypt(row.misskey_token_encrypted, row.misskey_token_iv, env)
       : null;
@@ -193,7 +232,9 @@ export async function getAllUserSettings(env) {
     settings.push({
       userId: row.user_id,
       userCreatedAt: row.user_created_at,
+      sourcePlatform: row.source_platform || 'bluesky',
       blueskyHandle: row.bluesky_handle,
+      blueskyAppPassword,
       misskeyToken,
       threadsToken,
       threadsTokenExpiresAt: row.threads_token_expires_at,
@@ -202,3 +243,4 @@ export async function getAllUserSettings(env) {
 
   return settings;
 }
+

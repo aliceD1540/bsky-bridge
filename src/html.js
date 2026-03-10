@@ -91,23 +91,35 @@ const MODAL_HTML = `
       <button class="modal-close" onclick="closeModal('helpModal')">✕</button>
       <h2>使い方</h2>
       <h3>このサービスについて</h3>
-      <p>Bluesky Bridge は、Bluesky アカウントの新着ポストを自動的に Threads および Misskey.io へ転記するサービスです。5分ごとに新着ポストを確認し、未投稿のポストを順次転送します。</p>
+      <p>Bluesky Bridge は、SNS アカウントの新着ポストを自動的に他のプラットフォームへ転記するサービスです。Bluesky・Misskey.io・Threads のいずれかを転記元として選択し、認証情報を設定した他プラットフォームへ5分ごとに自動転送します。</p>
 
       <h3>セットアップ手順</h3>
       <ol style="color:#555;line-height:1.8;font-size:14px;padding-left:1.4em">
         <li>アカウントを作成してログインします。</li>
-        <li>設定画面の「転記元」に Bluesky のアカウント名とアプリパスワードを入力し、「保存」します。アプリパスワードはアカウント所有確認のために使用され、サーバーには保存されません。</li>
-        <li>転記先の「Threads」欄で「Threadsに接続」ボタンを押し、OAuth認証を完了します。</li>
-        <li>転記先の「Misskey.io」欄にアクセストークンを入力し、「保存」します（オプション）。</li>
-        <li>設定完了後、5分以内に転記が開始されます。</li>
+        <li>設定画面「転記元指定」で転記元にするプラットフォームを選択し、「保存」します。</li>
+        <li>設定画面「認証情報」で、使用するプラットフォームの認証情報を入力します。
+          <ul style="margin-top:4px">
+            <li><b>Bluesky</b>：アカウント名とアプリパスワードを入力し「保存」します。</li>
+            <li><b>Misskey.io</b>：アクセストークンを入力し「保存」します。</li>
+            <li><b>Threads</b>：「Threadsに接続」ボタンから OAuth 認証を完了します（完了時に自動保存）。</li>
+          </ul>
+        </li>
+        <li>設定完了後、5分以内に転記が開始されます。転記元以外の認証済みプラットフォームがすべて転記先になります。認証情報が未設定のプラットフォームは転記先から除外されます（設定画面に赤文字で表示されます）。</li>
       </ol>
 
       <h3>転記対象</h3>
       <ul>
-        <li>通常のポスト（テキスト・画像付き）※センシティブラベル（性的・暴力的等）が付いた画像は転載されず、元ポストへのリンクに差し替えられます</li>
+        <li>通常のポスト（テキスト・画像付き）</li>
         <li>リポスト → 転記先に元ポストの URL を添えて投稿されます</li>
         <li>引用ポスト → テキストに引用元 URL が追加されます</li>
         <li>リプライは転記されません</li>
+      </ul>
+
+      <h3>センシティブ・ネタバレコンテンツの扱い</h3>
+      <ul>
+        <li><b>Bluesky</b>：センシティブラベル（性的・暴力的等）が付いた画像は転載されず、元ポストへのリンクに差し替えられます。</li>
+        <li><b>Misskey.io</b>：CW（コンテンツ警告）付きポストは転記されません。</li>
+        <li><b>Threads</b>：ネタバレラベル付きポストは画像が転載されず、「ネタバレタグつきポストです。」というメッセージと元ポストへのリンクに差し替えられます。</li>
       </ul>
 
       <h3>注意事項</h3>
@@ -116,9 +128,10 @@ const MODAL_HTML = `
         <li>複数のポストが同時に検出された場合、5秒間隔で順番に転記されます。</li>
         <li>Threads は1日250件の投稿制限があります。</li>
         <li>アカウント登録日時以前のポストは転記されません。</li>
+        <li>転記元を切り替えると、切り替え時点以降の新着ポストのみが転記されます。切り替え前のポストは転記されません。</li>
         <li>Bluesky のアプリパスワードは設定→「アプリパスワード」から作成できます。</li>
-        <li>Threads トークンの有効期限は60日です。期限の7日前に自動更新されます。</li>
-        <li>60日以上ポストがない場合はトークンが期限切れになることがあります。その場合、設定画面に再連携を促すメッセージが表示されます。</li>
+        <li>Misskey.io のアクセストークンは設定→「API」から「アカウントの情報を見る」「ドライブを操作する」「ノートを作成・削除する」の権限で作成してください。</li>
+        <li>Threads トークンの有効期限は60日です。期限の7日前に自動更新されます。60日以上ポストがない場合はトークンが期限切れになることがあります。その場合、設定画面に再連携を促すメッセージが表示されます。</li>
       </ul>
     </div>
   </div>
@@ -624,10 +637,28 @@ export const HTML_SETTINGS = `
       font-size: 14px;
       box-sizing: border-box;
     }
+    .radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .radio-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .radio-label input[type="radio"] {
+      margin: 0;
+      flex-shrink: 0;
+      width: auto;
+      padding: 0;
+    }
     .actions {
       display: flex;
       gap: 10px;
       margin-top: 8px;
+      justify-content: flex-end;
     }
     button {
       padding: 10px 20px;
@@ -665,7 +696,7 @@ export const HTML_SETTINGS = `
       font-size: 0.9em;
       margin-bottom: 1rem;
     }
-    .right-column {
+    .right-column, .left-column {
       display: flex;
       flex-direction: column;
       gap: 1.5rem;
@@ -685,6 +716,11 @@ export const HTML_SETTINGS = `
       font-size: 12px;
       margin-top: 5px;
     }
+    .text-danger {
+      color: #e0245e;
+      font-size: 12px;
+      margin-top: 5px;
+    }
     ${MODAL_STYLES}
   </style>
 </head>
@@ -695,32 +731,51 @@ export const HTML_SETTINGS = `
   </div>
 
   <div class="columns">
-    <!-- 左カラム: 投稿設定 -->
-    <div class="card">
-      <h2>投稿設定</h2>
-      <form id="settingsForm">
-        <h3>転記元</h3>
-        <h4>Bluesky</h4>
+    <!-- 左カラム: 転記元指定 / 認証情報 -->
+    <div class="left-column">
+      <div class="card">
+        <h2>転記元指定</h2>
+        <p class="info">選択したプラットフォームの新着投稿が、認証情報を設定済みの他プラットフォームへ自動転記されます。</p>
+        <p class="info">⚠️ 転記元を切り替えると、切り替え時点以降の新着投稿のみが転記されます。切り替え前の投稿は転記されません。</p>
+        <form id="settingsForm">
+          <div class="form-group radio-group">
+            <label class="radio-label"><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"><span>Bluesky</span></label>
+            <label class="radio-label"><input type="radio" name="sourcePlatform" value="misskey" id="srcMisskey"><span>Misskey.io</span></label>
+            <label class="radio-label"><input type="radio" name="sourcePlatform" value="threads" id="srcThreads"><span>Threads</span></label>
+          </div>
+          <div class="actions">
+            <button type="submit">保存</button>
+          </div>
+          <div id="message"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>認証情報</h2>
+        <p class="info">転記元・転記先として使用するプラットフォームの認証情報を設定してください。</p>
+
+        <h3>Bluesky</h3>
         <div class="form-group">
           <label for="blueskyHandle">アカウント名</label>
           <input type="text" id="blueskyHandle" placeholder="example.bsky.social">
         </div>
         <div class="form-group">
-          <label for="blueskyPassword">アプリパスワード</label>
-          <input type="password" id="blueskyPassword" placeholder="変更しない場合は空欄のまま">
-          <div class="info">Blueskyの設定からアプリパスワードを生成してください。</div>
+          <label for="blueskyAppPassword">アプリパスワード</label>
+          <input type="password" id="blueskyAppPassword" placeholder="変更しない場合は空欄のまま">
+          <p id="blueskyAppPasswordWarning" class="text-danger" style="display:none">アプリパスワードが未設定のため、Bluesky は転記先として無効です。</p>
+          <div class="info">Blueskyの設定からアプリパスワードを生成してください。転記元・転記先どちらで使用する場合も設定が必要です。</div>
         </div>
 
-        <h3>転記先</h3>
-        <h4>Misskey.io</h4>
+        <h3>Misskey.io</h3>
         <div class="form-group">
           <label for="misskeyToken">アクセストークン</label>
           <input type="password" id="misskeyToken" placeholder="変更しない場合は空欄のまま">
-          <div class="info">Misskey.ioの設定から「ドライブを操作する」「ノートを作成・削除する」の権限を持つアクセストークンを生成してください。</div>
+          <div class="info">Misskey.ioの設定から「アカウントの情報を見る」「ドライブを操作する」「ノートを作成・削除する」の権限を持つアクセストークンを生成してください。</div>
         </div>
 
-        <h4>Threads</h4>
+        <h3>Threads</h3>
         <div class="form-group">
+          <div class="info">連携ボタンから認証が完了した時点で自動保存されます。保存ボタンの押下は不要です。</div>
           <div id="threadsStatus" class="info">読み込み中...</div>
           <div id="threadsConnected" style="display:none">
             <p id="threadsExpiry"></p>
@@ -733,10 +788,10 @@ export const HTML_SETTINGS = `
         </div>
 
         <div class="actions">
-          <button type="submit">保存</button>
+          <button type="button" id="saveCredentialsBtn">保存</button>
         </div>
-        <div id="message"></div>
-      </form>
+        <div id="credentialsMessage"></div>
+      </div>
     </div>
 
     <!-- 右カラム: パスワード変更 / アカウント削除 -->
@@ -793,6 +848,19 @@ export const HTML_SETTINGS = `
         if (data.blueskyHandle) {
           document.getElementById('blueskyHandle').value = data.blueskyHandle;
         }
+        // アプリパスワード未設定の場合、赤文字で警告を表示
+        const appPwWarning = document.getElementById('blueskyAppPasswordWarning');
+        if (data.hasBlueskyAppPassword) {
+          document.getElementById('blueskyAppPassword').placeholder = '設定済み（変更する場合のみ入力）';
+          appPwWarning.style.display = 'none';
+        } else {
+          document.getElementById('blueskyAppPassword').placeholder = '変更しない場合は空欄のまま';
+          appPwWarning.style.display = 'block';
+        }
+        // 転記元プラットフォームを設定
+        const src = data.sourcePlatform || 'bluesky';
+        const radio = document.querySelector('input[name="sourcePlatform"][value="' + src + '"]');
+        if (radio) radio.checked = true;
         updateThreadsStatus(data);
       } catch (err) {
         console.error('設定の読み込みに失敗しました', err);
@@ -876,16 +944,16 @@ export const HTML_SETTINGS = `
 
     loadSettings();
 
+    // 転記元指定フォームの保存
     document.getElementById('settingsForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const messageDiv = document.getElementById('message');
-      
+
+      const sourcePlatformRadio = document.querySelector('input[name="sourcePlatform"]:checked');
       const settings = {
-        blueskyHandle: document.getElementById('blueskyHandle').value,
-        blueskyPassword: document.getElementById('blueskyPassword').value,
-        misskeyToken: document.getElementById('misskeyToken').value,
+        sourcePlatform: sourcePlatformRadio ? sourcePlatformRadio.value : 'bluesky',
       };
-      
+
       try {
         const res = await fetch('/api/settings', {
           method: 'POST',
@@ -893,20 +961,41 @@ export const HTML_SETTINGS = `
           credentials: 'same-origin',
           body: JSON.stringify(settings),
         });
-        
-        if (res.status === 401) {
-          window.location.href = '/login';
-          return;
-        }
-        
+
+        if (res.status === 401) { window.location.href = '/login'; return; }
+
         const data = await res.json();
-        if (data.success) {
-          messageDiv.className = 'success';
-          messageDiv.textContent = '設定を保存しました';
-        } else {
-          messageDiv.className = 'error';
-          messageDiv.textContent = data.error || '保存に失敗しました';
-        }
+        messageDiv.className = data.success ? 'success' : 'error';
+        messageDiv.textContent = data.success ? '転記元を保存しました' : (data.error || '保存に失敗しました');
+      } catch (err) {
+        messageDiv.className = 'error';
+        messageDiv.textContent = 'エラーが発生しました';
+      }
+    });
+
+    // 認証情報の保存
+    document.getElementById('saveCredentialsBtn').addEventListener('click', async () => {
+      const messageDiv = document.getElementById('credentialsMessage');
+
+      const settings = {
+        blueskyHandle: document.getElementById('blueskyHandle').value,
+        blueskyAppPassword: document.getElementById('blueskyAppPassword').value,
+        misskeyToken: document.getElementById('misskeyToken').value,
+      };
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(settings),
+        });
+
+        if (res.status === 401) { window.location.href = '/login'; return; }
+
+        const data = await res.json();
+        messageDiv.className = data.success ? 'success' : 'error';
+        messageDiv.textContent = data.success ? '認証情報を保存しました' : (data.error || '保存に失敗しました');
       } catch (err) {
         messageDiv.className = 'error';
         messageDiv.textContent = 'エラーが発生しました';

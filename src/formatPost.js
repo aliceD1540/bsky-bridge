@@ -3,9 +3,10 @@
 
 const MAX_TEXT_LENGTH = 400;
 
-export function formatPost({ post, blueskyUrl }) {
-  // post: Blueskyポストオブジェクト
-  // blueskyUrl: ポストURL
+export function formatPost({ post, sourceUrl, sourcePlatform = 'bluesky', blueskyUrl }) {
+  // 後方互換: blueskyUrl は sourceUrl として扱う
+  const url = sourceUrl || blueskyUrl || '';
+
   let text = post.text || '';
   let cardUrl = post.cardUrl;
   let images = post.images || [];
@@ -14,13 +15,19 @@ export function formatPost({ post, blueskyUrl }) {
   let quotedUrl = post.quotedUrl;
   let repostUrl = post.repostUrl;
 
+  // Misskey: CW（コンテンツ警告）付き投稿はスキップ
+  if (sourcePlatform === 'misskey' && post.cw) return null;
+
+  // Misskey: 公開範囲がpublic以外はスキップ
+  if (sourcePlatform === 'misskey' && post.visibility && post.visibility !== 'public') return null;
+
   // リプライは無視
   if (post.reply) return null;
 
-  // 文字数制限
+  // 文字数制限（500文字超の場合は切り詰めてソースURLを付与）
   if (text.length > 500) {
-    text = text.slice(0, MAX_TEXT_LENGTH) + `...\n全文はこちら：${blueskyUrl}`;
-    cardUrl = undefined; // 仕様：切り詰め時はカードURL含めない
+    text = text.slice(0, MAX_TEXT_LENGTH) + `...\n全文はこちら：${url}`;
+    cardUrl = undefined;
   } else if (cardUrl) {
     text += `\n${cardUrl}`;
   }
@@ -36,13 +43,16 @@ export function formatPost({ post, blueskyUrl }) {
     text = `${text} ${quotedUrl}`;
   }
 
-  // センシティブラベルがある場合、画像を転載せずBlueskyの元ポストへのリンクに差し替え
+  // センシティブ/ネタバレラベルがある場合、画像を転載せずソースポストへのリンクに差し替え
   if (labels.length > 0 && images.length > 0) {
-    text = `${text}\n⚠️ このポストにはセンシティブなラベル（${labels.join(', ')}）が付いています。\n画像は転載されません。元ポスト: ${blueskyUrl}`.trim();
+    const labelMsg = (sourcePlatform === 'threads' && labels.includes('spoiler'))
+      ? 'ネタバレタグつきポストです。'
+      : `このポストにはセンシティブなラベル（${labels.join(', ')}）が付いています。`;
+    text = `${text}\n⚠️ ${labelMsg}\n画像は転載されません。元ポスト: ${url}`.trim();
     images = [];
   }
 
-  // Blueskyの仕様上、画像は最大4枚
+  // 画像は最大4枚（Bluesky仕様に合わせた共通上限）
   images = images.slice(0, 4);
 
   return { text, images };

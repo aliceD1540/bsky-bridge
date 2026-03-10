@@ -114,41 +114,128 @@ async function publishContainer({ userId, creationId, accessToken }) {
 export async function postToThreads({ text, images = [], accessToken }) {
   const userId = await getUserId(accessToken);
 
+  // Threads が取得できる有効な HTTPS URL のみ使用
+  const validImages = images.filter((url) => typeof url === 'string' && url.startsWith('http'));
+  if (validImages.length !== images.length) {
+    console.warn(`postToThreads: ${images.length - validImages.length} image(s) skipped due to invalid URL`);
+  }
+
   let creationId;
 
-  if (images.length === 0) {
+  if (validImages.length === 0) {
     // テキストのみ
     creationId = await createContainer({
       userId,
       params: { media_type: 'TEXT', text },
       accessToken,
     });
-  } else if (images.length === 1) {
-    // 画像1枚
-    creationId = await createContainer({
-      userId,
-      params: { media_type: 'IMAGE', image_url: images[0], text },
-      accessToken,
-    });
+  } else if (validImages.length === 1) {
+    // 画像1枚（失敗時はテキストのみにフォールバック）
+    try {
+      creationId = await createContainer({
+        userId,
+        params: { media_type: 'IMAGE', image_url: validImages[0], text },
+        accessToken,
+      });
+    } catch (e) {
+      console.warn('Threads image upload failed, falling back to text-only:', e.message);
+      creationId = await createContainer({
+        userId,
+        params: { media_type: 'TEXT', text },
+        accessToken,
+      });
+    }
   } else {
-    // カルーセル（複数画像）
-    const childIds = await Promise.all(
-      images.map((url) =>
-        createContainer({
-          userId,
-          params: { media_type: 'IMAGE', image_url: url, is_carousel_item: 'true' },
-          accessToken,
-        })
-      )
-    );
-    creationId = await createContainer({
-      userId,
-      params: { media_type: 'CAROUSEL', children: childIds.join(','), text },
-      accessToken,
-    });
+    // カルーセル（複数画像）失敗時はテキストのみにフォールバック
+    try {
+      const childIds = await Promise.all(
+        validImages.map((url) =>
+          createContainer({
+            userId,
+            params: { media_type: 'IMAGE', image_url: url, is_carousel_item: 'true' },
+            accessToken,
+          })
+        )
+      );
+      creationId = await createContainer({
+        userId,
+        params: { media_type: 'CAROUSEL', children: childIds.join(','), text },
+        accessToken,
+      });
+    } catch (e) {
+      console.warn('Threads carousel upload failed, falling back to text-only:', e.message);
+      creationId = await createContainer({
+        userId,
+        params: { media_type: 'TEXT', text },
+        accessToken,
+      });
+    }
   }
 
   const threadId = await publishContainer({ userId, creationId, accessToken });
   if (threadId === null) return { success: false, limitReached: true };
   return { success: true, threadId };
+}
+
+// 転記元：認証ユーザーの識別情報を取得（ユーザーIDとユーザー名）
+export async function fetchThreadsIdentity(accessToken) {
+  const res = await fetch(`${THREADS_API}/me?fields=id,username&access_token=${accessToken}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Threads /me failed: ${res.status} - ${body}`);
+  }
+  return await res.json(); // { id, username }
+}
+
+// 転記元：認証ユーザーの新着投稿をポーリング（古い順で返す）
+export async function fetchThreadsPostsSince({ accessToken, userId, since }) {
+  const fields = 'id,text,media_type,media_url,timestamp,permalink,is_spoiler_media,children{media_url}';
+  const sinceUnix = since
+    ? Math.floor(new Date(since).getTime() / 1000)
+    : Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
+  const url = `${THREADS_API}/${userId}/threads?fields=${encodeURIComponent(fields)}&since=${sinceUnix}&limit=50&access_token=${accessToken}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Threads /${userId}/threads failed: ${res.status} - ${text}`);
+  }
+  const data = await res.json();
+  // timestamp で古い順に揃える
+  return (data.data || []).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+}
+
+// 転記元：単一投稿を取得して正規化する
+export async function fetchThreadsPost(mediaId, accessToken) {
+  const fields = 'id,text,media_type,media_url,timestamp,permalink,is_spoiler_media,children{media_url}';
+  const res = await fetch(
+    `${THREADS_API}/${mediaId}?fields=${encodeURIComponent(fields)}&access_token=${accessToken}`
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Threads fetchPost failed: ${res.status} - ${body}`);
+  }
+  return await res.json();
+}
+
+// Threads 投稿を formatPost が扱える共通フォーマットに変換
+export function normalizeThreadsPost(post) {
+  const images = [];
+  if (post.media_type === 'IMAGE' && post.media_url) {
+    images.push(post.media_url);
+  } else if (post.media_type === 'CAROUSEL' && post.children?.data) {
+    for (const child of post.children.data) {
+      if (child.media_url) images.push(child.media_url);
+    }
+  }
+
+  return {
+    uri: post.id,
+    createdAt: post.timestamp,
+    text: post.text || '',
+    reply: null,
+    type: 'post',
+    images,
+    labels: post.is_spoiler_media ? ['spoiler'] : [],
+    permalink: post.permalink,
+  };
 }
