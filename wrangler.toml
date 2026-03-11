@@ -9,6 +9,7 @@ crons = ["*/5 * * * *"]
 
 [vars]
 APP_URL = "https://bsky-bridge.project-grimoire.dev"
+EMAIL_VERIFICATION_ENABLED = "true"
 
 [[kv_namespaces]]
 binding = "KV"

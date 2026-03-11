@@ -132,6 +132,7 @@ const MODAL_HTML = `
         <li>Bluesky のアプリパスワードは設定→「アプリパスワード」から作成できます。</li>
         <li>Misskey.io のアクセストークンは設定→「API」から「アカウントの情報を見る」「ドライブを操作する」「ノートを作成・削除する」の権限で作成してください。</li>
         <li>Threads トークンの有効期限は60日です。期限の7日前に自動更新されます。60日以上ポストがない場合はトークンが期限切れになることがあります。その場合、設定画面に再連携を促すメッセージが表示されます。</li>
+        <li>アカウント登録やパスワードリセットに使用するメール送信はサーバの都合により1日の送信件数に上限があります。エラーが発生した場合は翌日以降に再度お試しください。</li>
       </ul>
     </div>
   </div>
@@ -396,6 +397,9 @@ export const HTML_LOGIN = `
       <button type="submit">ログイン</button>
       <div id="error" class="error"></div>
     </form>
+    <div class="link">
+      <a href="/forgot-password">パスワードを忘れた場合</a>
+    </div>
     <div class="link">
       <a href="/register">新規登録はこちら</a>
     </div>
@@ -730,6 +734,11 @@ export const HTML_SETTINGS = `
     <button type="button" class="btn-logout" onclick="logout()">ログアウト</button>
   </div>
 
+  <!-- メール未確認警告 -->
+  <div id="emailVerificationWarning" style="display:none; background:#fff3cd; border:1px solid #ffc107; border-radius:8px; padding:16px; margin-bottom:24px;">
+    <p style="margin:0; color:#856404; font-weight:500;">⚠️ メールアドレスが未確認です。自動転記機能を利用するには、送信されたメール内のリンクをクリックしてメールアドレスを確認してください。</p>
+  </div>
+
   <div class="columns">
     <!-- 左カラム: 転記元指定 / 認証情報 -->
     <div class="left-column">
@@ -845,6 +854,15 @@ export const HTML_SETTINGS = `
           return;
         }
         const data = await res.json();
+        
+        // メール未確認警告の表示
+        const warningDiv = document.getElementById('emailVerificationWarning');
+        if (data.emailVerified === false) {
+          warningDiv.style.display = 'block';
+        } else {
+          warningDiv.style.display = 'none';
+        }
+        
         if (data.blueskyHandle) {
           document.getElementById('blueskyHandle').value = data.blueskyHandle;
         }
@@ -1087,6 +1105,355 @@ export const HTML_SETTINGS = `
   </script>
   ${FOOTER_HTML}
   ${MODAL_HTML}
+</body>
+</html>
+`;
+
+// メール確認完了ページ
+export const HTML_VERIFY_EMAIL = `
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>メール確認 - Bluesky Bridge</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    h1 { color: #333; }
+    .success {
+      color: #17bf63;
+      margin: 20px 0;
+      font-size: 18px;
+    }
+    .error {
+      color: #e0245e;
+      margin: 20px 0;
+      font-size: 16px;
+    }
+    a {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 12px 24px;
+      background: #1da1f2;
+      color: white;
+      text-decoration: none;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+    a:hover {
+      background: #1a8cd8;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>メール確認</h1>
+    <div id="message">確認中...</div>
+  </div>
+  <script>
+    async function verifyEmail() {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      const messageDiv = document.getElementById('message');
+
+      if (!token) {
+        messageDiv.className = 'error';
+        messageDiv.innerHTML = 'トークンが無効です。<br><a href="/login">ログインページへ</a>';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/verify-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          messageDiv.className = 'success';
+          messageDiv.innerHTML = '✓ メールアドレスの確認が完了しました！<br><a href="/settings">設定画面へ</a>';
+        } else {
+          messageDiv.className = 'error';
+          messageDiv.innerHTML = (data.error || 'メール確認に失敗しました') + '<br><a href="/login">ログインページへ</a>';
+        }
+      } catch (err) {
+        messageDiv.className = 'error';
+        messageDiv.innerHTML = 'エラーが発生しました。<br><a href="/login">ログインページへ</a>';
+      }
+    }
+
+    verifyEmail();
+  </script>
+</body>
+</html>
+`;
+
+// パスワードリセット要求ページ
+export const HTML_FORGOT_PASSWORD = `
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>パスワードリセット - Bluesky Bridge</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 400px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 { color: #333; margin-top: 0; }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: #555;
+      font-weight: 500;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #1da1f2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #1a8cd8;
+    }
+    .success {
+      color: #17bf63;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    .error {
+      color: #e0245e;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    .link {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 14px;
+    }
+    a {
+      color: #1da1f2;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>パスワードリセット</h1>
+    <p style="color: #555; font-size: 14px;">登録したメールアドレスを入力してください。パスワードリセット用のリンクを送信します。</p>
+    <form id="forgotPasswordForm">
+      <div class="form-group">
+        <label for="email">メールアドレス</label>
+        <input type="email" id="email" required>
+      </div>
+      <button type="submit">リセットリンクを送信</button>
+      <div id="message"></div>
+    </form>
+    <div class="link">
+      <a href="/login">ログインページへ戻る</a>
+    </div>
+  </div>
+  <script>
+    document.getElementById('forgotPasswordForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const messageDiv = document.getElementById('message');
+
+      try {
+        const res = await fetch('/api/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          messageDiv.className = 'success';
+          messageDiv.textContent = 'パスワードリセット用のメールを送信しました。メールをご確認ください。';
+          document.getElementById('forgotPasswordForm').reset();
+        } else {
+          messageDiv.className = 'error';
+          messageDiv.textContent = data.error || 'メール送信に失敗しました';
+        }
+      } catch (err) {
+        messageDiv.className = 'error';
+        messageDiv.textContent = 'エラーが発生しました';
+      }
+    });
+  </script>
+</body>
+</html>
+`;
+
+// パスワードリセットページ
+export const HTML_RESET_PASSWORD = `
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>パスワードリセット - Bluesky Bridge</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 400px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 { color: #333; margin-top: 0; }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: #555;
+      font-weight: 500;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #1da1f2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #1a8cd8;
+    }
+    .success {
+      color: #17bf63;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+    .error {
+      color: #e0245e;
+      margin-top: 10px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>新しいパスワードを設定</h1>
+    <form id="resetPasswordForm">
+      <div class="form-group">
+        <label for="password">新しいパスワード</label>
+        <input type="password" id="password" required minlength="8">
+      </div>
+      <div class="form-group">
+        <label for="confirmPassword">新しいパスワード（確認）</label>
+        <input type="password" id="confirmPassword" required minlength="8">
+      </div>
+      <button type="submit">パスワードをリセット</button>
+      <div id="message"></div>
+    </form>
+  </div>
+  <script>
+    document.getElementById('resetPasswordForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+      const messageDiv = document.getElementById('message');
+
+      if (password !== confirmPassword) {
+        messageDiv.className = 'error';
+        messageDiv.textContent = 'パスワードが一致しません';
+        return;
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+
+      if (!token) {
+        messageDiv.className = 'error';
+        messageDiv.textContent = 'トークンが無効です';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, password }),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          messageDiv.className = 'success';
+          messageDiv.innerHTML = 'パスワードをリセットしました。<br><a href="/login">ログインページへ</a>';
+        } else {
+          messageDiv.className = 'error';
+          messageDiv.textContent = data.error || 'パスワードリセットに失敗しました';
+        }
+      } catch (err) {
+        messageDiv.className = 'error';
+        messageDiv.textContent = 'エラーが発生しました';
+      }
+    });
+  </script>
 </body>
 </html>
 `;
