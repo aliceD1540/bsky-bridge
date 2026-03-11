@@ -1,7 +1,7 @@
 // 認証ハンドラー
 
 import { hashPassword, verifyPassword, verifySha256Password } from './crypto.js';
-import { sendVerificationEmail, sendPasswordResetEmail, isEmailVerificationEnabled } from './emailService.js';
+import { sendVerificationEmail, sendPasswordResetEmail, isEmailVerificationEnabled, EmailDailyLimitError } from './emailService.js';
 
 // セッショントークン生成
 function generateSessionToken() {
@@ -65,6 +65,9 @@ export async function register(env, email, password) {
       await sendVerificationEmail(env, email, emailVerificationToken);
     } catch (e) {
       console.error('Failed to send verification email:', e);
+      if (e instanceof EmailDailyLimitError) {
+        return { success: false, error: 'メール送信の1日の上限に達しました。翌日以降に再度お試しください。' };
+      }
       return { success: false, error: 'Failed to send verification email' };
     }
   }
@@ -303,6 +306,9 @@ export async function requestPasswordReset(env, email) {
     await sendPasswordResetEmail(env, email, token);
   } catch (e) {
     console.error('Failed to send password reset email:', e);
+    if (e instanceof EmailDailyLimitError) {
+      return { success: false, error: 'メール送信の1日の上限に達しました。翌日以降に再度お試しください。' };
+    }
     return { success: false, error: 'Failed to send email' };
   }
 

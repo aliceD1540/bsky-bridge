@@ -2,6 +2,14 @@
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
+// Brevo の日次送信上限に達した場合のエラー
+export class EmailDailyLimitError extends Error {
+  constructor() {
+    super('Daily email sending limit reached');
+    this.name = 'EmailDailyLimitError';
+  }
+}
+
 // メール送信（Brevo API）
 async function sendEmail(apiKey, { to, subject, htmlContent }) {
   if (!apiKey) {
@@ -28,6 +36,10 @@ async function sendEmail(apiKey, { to, subject, htmlContent }) {
 
   if (!response.ok) {
     const error = await response.text();
+    // 429 または Brevo の日次上限エラー（400 + "daily_limit" コード）
+    if (response.status === 429 || (response.status === 400 && error.includes('daily_limit'))) {
+      throw new EmailDailyLimitError();
+    }
     throw new Error(`Failed to send email: ${response.status} ${error}`);
   }
 
