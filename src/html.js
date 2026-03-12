@@ -748,9 +748,9 @@ export const HTML_SETTINGS = `
         <p class="info">⚠️ 転記元を切り替えると、切り替え時点以降の新着投稿のみが転記されます。切り替え前の投稿は転記されません。</p>
         <form id="settingsForm">
           <div class="form-group radio-group">
-            <label class="radio-label"><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"><span>Bluesky</span></label>
-            <label class="radio-label"><input type="radio" name="sourcePlatform" value="misskey" id="srcMisskey"><span>Misskey.io</span></label>
-            <label class="radio-label"><input type="radio" name="sourcePlatform" value="threads" id="srcThreads"><span>Threads</span></label>
+            <label class="radio-label"><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"><span>Bluesky</span><span class="text-danger" id="srcBlueskyWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
+            <label class="radio-label"><input type="radio" name="sourcePlatform" value="misskey" id="srcMisskey"><span>Misskey.io</span><span class="text-danger" id="srcMisskeyWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
+            <label class="radio-label"><input type="radio" name="sourcePlatform" value="threads" id="srcThreads"><span>Threads</span><span class="text-danger" id="srcThreadsWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
           </div>
           <div class="actions">
             <button type="submit">保存</button>
@@ -763,7 +763,7 @@ export const HTML_SETTINGS = `
         <h2>認証情報</h2>
         <p class="info">転記元・転記先として使用するプラットフォームの認証情報を設定してください。</p>
 
-        <h3>Bluesky</h3>
+        <h3>Bluesky <span class="text-danger" id="blueskyStatusWarning" style="display:none;">認証情報未設定</span></h3>
         <div class="form-group">
           <label for="blueskyHandle">アカウント名</label>
           <input type="text" id="blueskyHandle" placeholder="example.bsky.social">
@@ -771,18 +771,23 @@ export const HTML_SETTINGS = `
         <div class="form-group">
           <label for="blueskyAppPassword">アプリパスワード</label>
           <input type="password" id="blueskyAppPassword" placeholder="変更しない場合は空欄のまま">
-          <p id="blueskyAppPasswordWarning" class="text-danger" style="display:none">アプリパスワードが未設定のため、Bluesky は転記先として無効です。</p>
           <div class="info">Blueskyの設定からアプリパスワードを生成してください。転記元・転記先どちらで使用する場合も設定が必要です。</div>
         </div>
+        <div id="blueskyDeleteBtnContainer" style="display:none;">
+          <button type="button" id="blueskyDeleteBtn" class="btn-danger">認証情報削除</button>
+        </div>
 
-        <h3>Misskey.io</h3>
+        <h3>Misskey.io <span class="text-danger" id="misskeyStatusWarning" style="display:none;">認証情報未設定</span></h3>
         <div class="form-group">
           <label for="misskeyToken">アクセストークン</label>
           <input type="password" id="misskeyToken" placeholder="変更しない場合は空欄のまま">
           <div class="info">Misskey.ioの設定から「アカウントの情報を見る」「ドライブを操作する」「ノートを作成・削除する」の権限を持つアクセストークンを生成してください。</div>
         </div>
+        <div id="misskeyDeleteBtnContainer" style="display:none;">
+          <button type="button" id="misskeyDeleteBtn" class="btn-danger">認証情報削除</button>
+        </div>
 
-        <h3>Threads</h3>
+        <h3>Threads <span class="text-danger" id="threadsStatusWarning" style="display:none;">認証情報未設定</span></h3>
         <div class="form-group">
           <div class="info">連携ボタンから認証が完了した時点で自動保存されます。保存ボタンの押下は不要です。</div>
           <div id="threadsStatus" class="info">読み込み中...</div>
@@ -866,22 +871,58 @@ export const HTML_SETTINGS = `
         if (data.blueskyHandle) {
           document.getElementById('blueskyHandle').value = data.blueskyHandle;
         }
-        // アプリパスワード未設定の場合、赤文字で警告を表示
-        const appPwWarning = document.getElementById('blueskyAppPasswordWarning');
+        
+        // 各プラットフォームの認証状態を更新
+        updateAuthStatus('bluesky', data.hasBlueskyAppPassword);
+        updateAuthStatus('misskey', data.hasMisskeyToken);
+        updateAuthStatus('threads', data.hasThreadsToken);
+        
+        // アプリパスワード設定状態を反映
         if (data.hasBlueskyAppPassword) {
           document.getElementById('blueskyAppPassword').placeholder = '設定済み（変更する場合のみ入力）';
-          appPwWarning.style.display = 'none';
         } else {
           document.getElementById('blueskyAppPassword').placeholder = '変更しない場合は空欄のまま';
-          appPwWarning.style.display = 'block';
         }
+        
+        // Misskey.io トークン設定状態を反映
+        if (data.hasMisskeyToken) {
+          document.getElementById('misskeyToken').placeholder = '設定済み（変更する場合のみ入力）';
+        } else {
+          document.getElementById('misskeyToken').placeholder = '変更しない場合は空欄のまま';
+        }
+        
         // 転記元プラットフォームを設定
         const src = data.sourcePlatform || 'bluesky';
         const radio = document.querySelector('input[name="sourcePlatform"][value="' + src + '"]');
-        if (radio) radio.checked = true;
+        if (radio && !radio.disabled) {
+          radio.checked = true;
+        } else if (radio && radio.disabled) {
+          // 現在の転記元が無効化されている場合、何も選択しない
+        }
+        
         updateThreadsStatus(data);
       } catch (err) {
         console.error('設定の読み込みに失敗しました', err);
+      }
+    }
+    
+    // 認証状態の更新（ラジオボタンのdisabled状態と警告表示）
+    function updateAuthStatus(platform, hasAuth) {
+      const radioBtn = document.getElementById('src' + platform.charAt(0).toUpperCase() + platform.slice(1));
+      const radioWarning = document.getElementById('src' + platform.charAt(0).toUpperCase() + platform.slice(1) + 'Warning');
+      const statusWarning = document.getElementById(platform + 'StatusWarning');
+      const deleteBtn = document.getElementById(platform + 'DeleteBtnContainer');
+      
+      if (hasAuth) {
+        if (radioBtn) radioBtn.disabled = false;
+        if (radioWarning) radioWarning.style.display = 'none';
+        if (statusWarning) statusWarning.style.display = 'none';
+        if (deleteBtn) deleteBtn.style.display = 'block';
+      } else {
+        if (radioBtn) radioBtn.disabled = true;
+        if (radioWarning) radioWarning.style.display = 'inline';
+        if (statusWarning) statusWarning.style.display = 'inline';
+        if (deleteBtn) deleteBtn.style.display = 'none';
       }
     }
 
@@ -909,6 +950,9 @@ export const HTML_SETTINGS = `
         const isExpired = data.threadsTokenExpiresAt && new Date(data.threadsTokenExpiresAt) < new Date();
         expiredMsg.style.display = isExpired ? 'block' : 'none';
       }
+      
+      // 認証状態を更新
+      updateAuthStatus('threads', data.hasThreadsToken);
     }
 
     // Threads接続ボタン
@@ -943,6 +987,58 @@ export const HTML_SETTINGS = `
         }
       } catch (err) {
         console.error('Threads連携解除に失敗しました', err);
+      }
+    });
+
+    // Bluesky 認証情報削除ボタン
+    document.getElementById('blueskyDeleteBtn').addEventListener('click', async () => {
+      if (!confirm('Blueskyの認証情報を削除しますか？')) return;
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            blueskyHandle: null,
+            blueskyAppPassword: null,
+          }),
+        });
+        if (res.ok) {
+          document.getElementById('blueskyHandle').value = '';
+          document.getElementById('blueskyAppPassword').value = '';
+          document.getElementById('blueskyAppPassword').placeholder = '変更しない場合は空欄のまま';
+          updateAuthStatus('bluesky', false);
+          const messageDiv = document.getElementById('credentialsMessage');
+          messageDiv.className = 'success';
+          messageDiv.textContent = 'Blueskyの認証情報を削除しました';
+        }
+      } catch (err) {
+        console.error('Bluesky認証情報削除に失敗しました', err);
+      }
+    });
+
+    // Misskey.io 認証情報削除ボタン
+    document.getElementById('misskeyDeleteBtn').addEventListener('click', async () => {
+      if (!confirm('Misskey.ioの認証情報を削除しますか？')) return;
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            misskeyToken: null,
+          }),
+        });
+        if (res.ok) {
+          document.getElementById('misskeyToken').value = '';
+          document.getElementById('misskeyToken').placeholder = '変更しない場合は空欄のまま';
+          updateAuthStatus('misskey', false);
+          const messageDiv = document.getElementById('credentialsMessage');
+          messageDiv.className = 'success';
+          messageDiv.textContent = 'Misskey.ioの認証情報を削除しました';
+        }
+      } catch (err) {
+        console.error('Misskey.io認証情報削除に失敗しました', err);
       }
     });
 
@@ -1014,6 +1110,11 @@ export const HTML_SETTINGS = `
         const data = await res.json();
         messageDiv.className = data.success ? 'success' : 'error';
         messageDiv.textContent = data.success ? '認証情報を保存しました' : (data.error || '保存に失敗しました');
+        
+        // 保存成功後、設定を再読み込みして認証状態を更新
+        if (data.success) {
+          loadSettings();
+        }
       } catch (err) {
         messageDiv.className = 'error';
         messageDiv.textContent = 'エラーが発生しました';
