@@ -169,7 +169,7 @@ export async function getSettings(env, userId) {
 // 公開用設定取得（トークン有無のみ、値は含まない）
 export async function getPublicSettings(env, userId) {
   const userRow = await env.DB.prepare(`
-    SELECT email_verified
+    SELECT email, email_verified
     FROM users
     WHERE id = ?
   `)
@@ -191,7 +191,11 @@ export async function getPublicSettings(env, userId) {
     .first();
 
   if (!row) {
+    const today = new Date().toISOString().split('T')[0];
+    const countKey = `daily_post_count:${today}:${userId}`;
+    const countStr = await env.KV.get(countKey);
     return {
+      email: userRow?.email || '',
       emailVerified: userRow ? (userRow.email_verified === 1) : false,
       sourcePlatform: 'bluesky',
       blueskyHandle: null,
@@ -199,10 +203,16 @@ export async function getPublicSettings(env, userId) {
       hasMisskeyToken: false,
       hasThreadsToken: false,
       threadsTokenExpiresAt: null,
+      todayPostCount: countStr ? parseInt(countStr, 10) : 0,
     };
   }
 
+  const today = new Date().toISOString().split('T')[0];
+  const countKey = `daily_post_count:${today}:${userId}`;
+  const countStr = await env.KV.get(countKey);
+
   return {
+    email: userRow?.email || '',
     emailVerified: userRow ? (userRow.email_verified === 1) : false,
     sourcePlatform: row.source_platform || 'bluesky',
     blueskyHandle: row.bluesky_handle,
@@ -210,6 +220,7 @@ export async function getPublicSettings(env, userId) {
     hasMisskeyToken: !!(row.misskey_token_encrypted),
     hasThreadsToken: !!(row.threads_token_encrypted),
     threadsTokenExpiresAt: row.threads_token_expires_at,
+    todayPostCount: countStr ? parseInt(countStr, 10) : 0,
   };
 }
 

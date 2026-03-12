@@ -684,6 +684,26 @@ export const HTML_SETTINGS = `
     .btn-logout:hover {
       background: #56646f;
     }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .user-info {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+    .user-info-email {
+      font-size: 13px;
+      color: #555;
+      font-weight: 500;
+    }
+    .user-info-count {
+      font-size: 12px;
+      color: #657786;
+    }
     .btn-danger {
       background: #e0245e;
     }
@@ -732,7 +752,13 @@ export const HTML_SETTINGS = `
 <body>
   <div class="page-header">
     <h1>Bluesky Bridge</h1>
-    <button type="button" class="btn-logout" onclick="logout()">ログアウト</button>
+    <div class="header-right">
+      <div class="user-info">
+        <span class="user-info-email" id="headerEmail"></span>
+        <span class="user-info-count" id="headerPostCount"></span>
+      </div>
+      <button type="button" class="btn-logout" onclick="logout()">ログアウト</button>
+    </div>
   </div>
 
   <!-- メール未確認警告 -->
@@ -860,6 +886,12 @@ export const HTML_SETTINGS = `
           return;
         }
         const data = await res.json();
+        
+        // ヘッダーにメールアドレスと本日の転記回数を表示
+        if (data.email) {
+          document.getElementById('headerEmail').textContent = data.email;
+        }
+        document.getElementById('headerPostCount').textContent = '本日の転記回数: ' + (data.todayPostCount ?? 0) + ' / ' + (data.dailyLimit ?? 20) + ' 回';
         
         // メール未確認警告の表示
         const warningDiv = document.getElementById('emailVerificationWarning');

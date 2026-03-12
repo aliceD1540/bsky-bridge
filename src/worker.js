@@ -10,6 +10,8 @@ import { SOURCE_ADAPTERS, DEST_ADAPTERS, getDestinationsForUser } from './adapte
 import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS, HTML_VERIFY_EMAIL, HTML_FORGOT_PASSWORD, HTML_RESET_PASSWORD } from './html.js';
 import { serveProxiedImage } from './mediaProxy.js';
 
+const DAILY_POST_LIMIT = 20;
+
 export default {
   async fetch(request, env) {
     return handleRequest(request, env);
@@ -237,7 +239,7 @@ async function handleRequest(request, env) {
       });
     }
     const settings = await getPublicSettings(env, session.userId);
-    return new Response(JSON.stringify(settings || {}), {
+    return new Response(JSON.stringify({ ...(settings || {}), dailyLimit: DAILY_POST_LIMIT }), {
       headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -479,7 +481,7 @@ async function checkAndEnqueueForUser(env, user) {
 
   // 1日の書き込み回数制限チェック（管理者は無制限）
   if (!isAdmin) {
-    const dailyLimit = 20;
+    const dailyLimit = DAILY_POST_LIMIT;
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const countKey = `daily_post_count:${today}:${userId}`;
     const currentCountStr = await env.KV.get(countKey);
