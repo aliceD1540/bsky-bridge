@@ -189,11 +189,12 @@ const MODAL_HTML = `
       <ul>
         <li>メールアドレス（アカウント登録時）</li>
         <li>パスワード（PBKDF2+saltによりハッシュ化して保管）</li>
-        <li>Bluesky のユーザーハンドル</li>
+        <li>Bluesky のユーザーハンドルおよびアプリパスワード</li>
         <li>Threads の長期アクセストークンおよび有効期限</li>
         <li>Misskey.io のアクセストークン</li>
       </ul>
-      <p>SNS のアクセストークンは AES-GCM により暗号化して保管します。Bluesky のアプリパスワードはアカウント所有確認のみに使用し、保存しません。</p>
+      <p>Bluesky のアプリパスワード・Threads のアクセストークン・Misskey.io のアクセストークンは AES-GCM により暗号化して保管します。</p>
+      <p>なお、メール認証・パスワードリセットのためにメールアドレスを Brevo（メール配信サービス）へ送信します。Brevo のプライバシーポリシーについては <a href="https://www.brevo.com/legal/privacypolicy/" target="_blank" rel="noopener">こちら</a> をご確認ください。</p>
 
       <h3>情報の利用目的</h3>
       <p>収集した情報は以下の目的にのみ使用します。</p>
@@ -683,6 +684,26 @@ export const HTML_SETTINGS = `
     .btn-logout:hover {
       background: #56646f;
     }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .user-info {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+    .user-info-email {
+      font-size: 13px;
+      color: #555;
+      font-weight: 500;
+    }
+    .user-info-count {
+      font-size: 12px;
+      color: #657786;
+    }
     .btn-danger {
       background: #e0245e;
     }
@@ -731,7 +752,13 @@ export const HTML_SETTINGS = `
 <body>
   <div class="page-header">
     <h1>Bluesky Bridge</h1>
-    <button type="button" class="btn-logout" onclick="logout()">ログアウト</button>
+    <div class="header-right">
+      <div class="user-info">
+        <span class="user-info-email" id="headerEmail"></span>
+        <span class="user-info-count" id="headerPostCount"></span>
+      </div>
+      <button type="button" class="btn-logout" onclick="logout()">ログアウト</button>
+    </div>
   </div>
 
   <!-- メール未確認警告 -->
@@ -859,6 +886,12 @@ export const HTML_SETTINGS = `
           return;
         }
         const data = await res.json();
+        
+        // ヘッダーにメールアドレスと本日の転記回数を表示
+        if (data.email) {
+          document.getElementById('headerEmail').textContent = data.email;
+        }
+        document.getElementById('headerPostCount').textContent = '本日の転記回数: ' + (data.todayPostCount ?? 0) + ' / ' + (data.dailyLimit ?? 20) + ' 回';
         
         // メール未確認警告の表示
         const warningDiv = document.getElementById('emailVerificationWarning');

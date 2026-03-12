@@ -23,6 +23,15 @@ export async function register(env, email, password) {
     return { success: false, error: 'Email and password are required' };
   }
 
+  // アカウント作成上限チェック
+  const maxAccounts = parseInt(env.MAX_ACCOUNTS || '50', 10);
+  const userCountResult = await env.DB.prepare('SELECT COUNT(*) as count FROM users').first();
+  const currentUserCount = userCountResult?.count || 0;
+  
+  if (currentUserCount >= maxAccounts) {
+    return { success: false, error: 'アカウント作成の上限に達しています。新規登録を受け付けることができません。' };
+  }
+
   // メールアドレスの重複チェック（ユーザー列挙を防ぐため汎用メッセージを返す）
   const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?')
     .bind(email)
