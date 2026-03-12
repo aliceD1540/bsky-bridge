@@ -423,7 +423,15 @@ function serveHTML(env, path) {
     '/reset-password': HTML_RESET_PASSWORD,
   };
   
-  const html = pages[path] || pages['/'];
+  let html = pages[path] || pages['/'];
+  
+  // メンテナンスモード時はバナーを挿入
+  const maintenanceMode = env.MAINTENANCE_MODE === 'true';
+  if (maintenanceMode) {
+    const banner = '<div style="background-color: #ff6b6b; color: white; padding: 12px; text-align: center; font-weight: bold;">🔧 現在メンテナンス中です。一部機能が制限されています。</div>';
+    html = html.replace('<body>', '<body>' + banner);
+  }
+  
   return new Response(html, {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
@@ -453,11 +461,34 @@ async function checkAndEnqueueAll(env) {
 }
 
 async function checkAndEnqueueForUser(env, user) {
-  const { userId, userCreatedAt, sourcePlatform } = user;
+  const { userId, email, userCreatedAt, sourcePlatform } = user;
   const adapter = SOURCE_ADAPTERS[sourcePlatform];
 
   if (!adapter || !adapter.isConfigured(user)) {
     return 0;
+  }
+
+  // メンテナンスモードチェック（管理者以外はスキップ）
+  const maintenanceMode = env.MAINTENANCE_MODE === 'true';
+  const isAdmin = env.ADMIN_EMAIL && email === env.ADMIN_EMAIL;
+  
+  if (maintenanceMode && !isAdmin) {
+    console.log(`User ${userId}: Skipped (maintenance mode)`);
+    return 0;
+  }
+
+  // 1日の書き込み回数制限チェック（管理者は無制限）
+  if (!isAdmin) {
+    const dailyLimit = 20;
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const countKey = `daily_post_count:${today}:${userId}`;
+    const currentCountStr = await env.KV.get(countKey);
+    const currentCount = currentCountStr ? parseInt(currentCountStr, 10) : 0;
+    
+    if (currentCount >= dailyLimit) {
+      console.log(`User ${userId}: Daily limit (${dailyLimit}) reached, skipping`);
+      return 0;
+    }
   }
 
   // プラットフォームごとに前回チェック時刻を管理
@@ -512,6 +543,21 @@ async function checkAndEnqueueForUser(env, user) {
     }, { delaySeconds: i * 5 });
   }
 
+  // キュー追加成功後、書き込み回数をインクリメント（管理者以外）
+  if (!isAdmin) {
+    const today = new Date().toISOString().split('T')[0];
+    const countKey = `daily_post_count:${today}:${userId}`;
+    const currentCountStr = await env.KV.get(countKey);
+    const currentCount = currentCountStr ? parseInt(currentCountStr, 10) : 0;
+    // TTLは翌日0時までの秒数 + 3600秒（余裕を持たせる）
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setUTCHours(0, 0, 0, 0);
+    const ttl = Math.floor((tomorrow.getTime() - now.getTime()) / 1000) + 3600;
+    await env.KV.put(countKey, String(currentCount + 1), { expirationTtl: ttl });
+  }
+
   // 最新ポストの時刻を保存（次回cronのsince基準点）
   const newestPost = newPosts[newPosts.length - 1];
   await setLastPostedAt(env, userId, newestPost.createdAt, sourcePlatform);
@@ -538,6 +584,19 @@ async function handleQueue(batch, env) {
     if (!userSettings) {
       console.error(`User ${userId}: Settings not found`);
       message.ack();
+      continue;
+    }
+
+    // メンテナンスモードチェック（管理者以外はスキップ）
+    const maintenanceMode = env.MAINTENANCE_MODE === 'true';
+    const userRow = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(userId).first();
+    const userEmail = userRow?.email || '';
+    const isAdmin = env.ADMIN_EMAIL && userEmail === env.ADMIN_EMAIL;
+    
+    if (maintenanceMode && !isAdmin) {
+      console.log(`User ${userId}: Queue processing skipped (maintenance mode)`);
+      // メンテナンスが終わったら処理されるようにackせずにretry
+      message.retry();
       continue;
     }
 

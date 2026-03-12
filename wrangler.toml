@@ -10,6 +10,9 @@ crons = ["*/5 * * * *"]
 [vars]
 APP_URL = "https://bsky-bridge.project-grimoire.dev"
 EMAIL_VERIFICATION_ENABLED = "true"
+MAX_ACCOUNTS = "50"
+MAINTENANCE_MODE = "false"
+ADMIN_EMAIL = ""
 
 [[kv_namespaces]]
 binding = "KV"
