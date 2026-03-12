@@ -189,11 +189,12 @@ const MODAL_HTML = `
       <ul>
         <li>メールアドレス（アカウント登録時）</li>
         <li>パスワード（PBKDF2+saltによりハッシュ化して保管）</li>
-        <li>Bluesky のユーザーハンドル</li>
+        <li>Bluesky のユーザーハンドルおよびアプリパスワード</li>
         <li>Threads の長期アクセストークンおよび有効期限</li>
         <li>Misskey.io のアクセストークン</li>
       </ul>
-      <p>SNS のアクセストークンは AES-GCM により暗号化して保管します。Bluesky のアプリパスワードはアカウント所有確認のみに使用し、保存しません。</p>
+      <p>Bluesky のアプリパスワード・Threads のアクセストークン・Misskey.io のアクセストークンは AES-GCM により暗号化して保管します。</p>
+      <p>なお、メール認証・パスワードリセットのためにメールアドレスを Brevo（メール配信サービス）へ送信します。Brevo のプライバシーポリシーについては <a href="https://www.brevo.com/legal/privacypolicy/" target="_blank" rel="noopener">こちら</a> をご確認ください。</p>
 
       <h3>情報の利用目的</h3>
       <p>収集した情報は以下の目的にのみ使用します。</p>
