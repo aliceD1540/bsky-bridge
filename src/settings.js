@@ -218,7 +218,6 @@ export async function getAllUserSettings(env) {
   const rows = await env.DB.prepare(`
     SELECT
       u.id as user_id,
-      u.email as user_email,
       u.created_at as user_created_at,
       u.email_verified,
       s.source_platform,
@@ -255,7 +254,6 @@ export async function getAllUserSettings(env) {
 
     settings.push({
       userId: row.user_id,
-      email: row.user_email,
       userCreatedAt: row.user_created_at,
       sourcePlatform: row.source_platform || 'bluesky',
       blueskyHandle: row.bluesky_handle,
