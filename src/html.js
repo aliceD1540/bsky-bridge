@@ -476,12 +476,12 @@ export const HTML_LOGIN = `
       html = html.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
       html = html.replace(/\\*(.+?)\\*/g, '<em>$1</em>');
       html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-      const blocks = html.split(/\n\n+/);
+      const blocks = html.split(/\\n\\n+/);
       html = blocks.map(b => {
         b = b.trim();
         if (!b) return '';
         if (/^<h[1-3]/.test(b)) return b;
-        return '<p>' + b.replace(/\n/g, '<br>') + '</p>';
+        return '<p>' + b.replace(/\\n/g, '<br>') + '</p>';
       }).join('');
       return html;
     }
