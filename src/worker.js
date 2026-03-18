@@ -223,6 +223,41 @@ async function handleRequest(request, env) {
     });
   }
 
+  // お知らせ取得（全ユーザー向け・認証不要）
+  if (path === '/api/announcement' && request.method === 'GET') {
+    const row = await env.DB.prepare('SELECT content FROM announcements WHERE id = 1').first();
+    return new Response(JSON.stringify({ content: row?.content || '' }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // お知らせ更新（管理者のみ）
+  if (path === '/api/announcement' && request.method === 'POST') {
+    const sessionToken = getSessionToken(request);
+    const session = await verifySession(env, sessionToken);
+    if (!session) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const userRow = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(session.userId).first();
+    const isAdmin = env.ADMIN_EMAIL && userRow?.email === env.ADMIN_EMAIL;
+    if (!isAdmin) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const { content } = await request.json();
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO announcements (id, content, updated_at) VALUES (1, ?, datetime('now'))"
+    ).bind(content || '').run();
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   // メディアプロキシ: Threads CDN が直接取得できない画像を配信する
   if (path.startsWith('/media/') && request.method === 'GET') {
     const key = path.slice(7);

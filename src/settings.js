@@ -190,6 +190,8 @@ export async function getPublicSettings(env, userId) {
     .bind(userId)
     .first();
 
+  const isAdmin = !!(env.ADMIN_EMAIL && userRow?.email === env.ADMIN_EMAIL);
+
   if (!row) {
     const today = new Date().toISOString().split('T')[0];
     const countKey = `daily_post_count:${today}:${userId}`;
@@ -197,6 +199,7 @@ export async function getPublicSettings(env, userId) {
     return {
       email: userRow?.email || '',
       emailVerified: userRow ? (userRow.email_verified === 1) : false,
+      isAdmin,
       sourcePlatform: 'bluesky',
       blueskyHandle: null,
       hasBlueskyAppPassword: false,
@@ -214,6 +217,7 @@ export async function getPublicSettings(env, userId) {
   return {
     email: userRow?.email || '',
     emailVerified: userRow ? (userRow.email_verified === 1) : false,
+    isAdmin,
     sourcePlatform: row.source_platform || 'bluesky',
     blueskyHandle: row.bluesky_handle,
     hasBlueskyAppPassword: !!(row.bluesky_app_password_encrypted),
