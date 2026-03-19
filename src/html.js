@@ -452,13 +452,13 @@ export const HTML_LOGIN = `
           <a href="/register">新規登録はこちら</a>
         </div>
       </div>
-      ${FOOTER_HTML}
     </div>
     <div class="announcement-section" id="announcementSection">
       <h2>📢 お知らせ</h2>
       <div class="announcement-body" id="announcementBody"></div>
     </div>
   </div>
+  ${FOOTER_HTML}
   ${MODAL_HTML}
   <script>
     ${MODAL_SCRIPT}
