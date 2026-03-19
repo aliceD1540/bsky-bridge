@@ -580,8 +580,8 @@ async function checkAndEnqueueForUser(env, user) {
     }, { delaySeconds: i * 5 });
   }
 
-  // キュー追加成功後、書き込み回数をインクリメント（管理者以外）
-  if (!isAdmin) {
+  // キュー追加成功後、書き込み回数をインクリメント（管理者も含む）
+  {
     const today = new Date().toISOString().split('T')[0];
     const countKey = `daily_post_count:${today}:${userId}`;
     const currentCountStr = await env.KV.get(countKey);
@@ -592,7 +592,7 @@ async function checkAndEnqueueForUser(env, user) {
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     tomorrow.setUTCHours(0, 0, 0, 0);
     const ttl = Math.floor((tomorrow.getTime() - now.getTime()) / 1000) + 3600;
-    await env.KV.put(countKey, String(currentCount + 1), { expirationTtl: ttl });
+    await env.KV.put(countKey, String(currentCount + newPosts.length), { expirationTtl: ttl });
   }
 
   // 最新ポストの時刻を保存（次回cronのsince基準点）
