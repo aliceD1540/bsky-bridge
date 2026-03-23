@@ -320,10 +320,18 @@ export const HTML_LOGIN = `
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
-      max-width: 400px;
+      max-width: 900px;
       margin: 0 auto;
       padding: 20px;
       background: #f5f5f5;
+    }
+    .login-layout {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+    }
+    .login-section {
+      flex: 0 0 380px;
     }
     .container {
       background: white;
@@ -380,35 +388,119 @@ export const HTML_LOGIN = `
     a:hover {
       text-decoration: underline;
     }
+    .announcement-section {
+      flex: 1;
+      background: white;
+      padding: 24px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      display: none;
+    }
+    .announcement-section h2 {
+      margin-top: 0;
+      color: #333;
+      font-size: 16px;
+      border-bottom: 2px solid #1da1f2;
+      padding-bottom: 8px;
+      margin-bottom: 16px;
+    }
+    .announcement-body {
+      color: #444;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .announcement-body h1,
+    .announcement-body h2,
+    .announcement-body h3 {
+      color: #333;
+      margin: 0.5em 0;
+    }
+    .announcement-body p {
+      margin: 0.5em 0;
+    }
+    .announcement-body a {
+      color: #1da1f2;
+    }
+    @media (max-width: 640px) {
+      .login-layout { flex-direction: column; }
+      .login-section { flex: none; width: 100%; }
+    }
     ${MODAL_STYLES}
   </style>
 </head>
 <body>
-  <div class="container">
-    <h1>ログイン</h1>
-    <form id="loginForm">
-      <div class="form-group">
-        <label for="email">メールアドレス</label>
-        <input type="email" id="email" required>
+  <div class="login-layout">
+    <div class="login-section">
+      <div class="container">
+        <h1>ログイン</h1>
+        <form id="loginForm">
+          <div class="form-group">
+            <label for="email">メールアドレス</label>
+            <input type="email" id="email" required>
+          </div>
+          <div class="form-group">
+            <label for="password">パスワード</label>
+            <input type="password" id="password" required>
+          </div>
+          <button type="submit">ログイン</button>
+          <div id="error" class="error"></div>
+        </form>
+        <div class="link">
+          <a href="/forgot-password">パスワードを忘れた場合</a>
+        </div>
+        <div class="link">
+          <a href="/register">新規登録はこちら</a>
+        </div>
       </div>
-      <div class="form-group">
-        <label for="password">パスワード</label>
-        <input type="password" id="password" required>
-      </div>
-      <button type="submit">ログイン</button>
-      <div id="error" class="error"></div>
-    </form>
-    <div class="link">
-      <a href="/forgot-password">パスワードを忘れた場合</a>
     </div>
-    <div class="link">
-      <a href="/register">新規登録はこちら</a>
+    <div class="announcement-section" id="announcementSection">
+      <h2>📢 お知らせ</h2>
+      <div class="announcement-body" id="announcementBody"></div>
     </div>
   </div>
   ${FOOTER_HTML}
   ${MODAL_HTML}
   <script>
     ${MODAL_SCRIPT}
+
+    function renderMarkdown(text) {
+      if (!text) return '';
+      let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+      html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+      html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+      html = html.replace(/\\*\\*\\*(.+?)\\*\\*\\*/g, '<strong><em>$1</em></strong>');
+      html = html.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
+      html = html.replace(/\\*(.+?)\\*/g, '<em>$1</em>');
+      html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      const blocks = html.split(/\\n\\n+/);
+      html = blocks.map(b => {
+        b = b.trim();
+        if (!b) return '';
+        if (/^<h[1-3]/.test(b)) return b;
+        return '<p>' + b.replace(/\\n/g, '<br>') + '</p>';
+      }).join('');
+      return html;
+    }
+
+    async function loadAnnouncement() {
+      try {
+        const res = await fetch('/api/announcement');
+        const data = await res.json();
+        if (data.content) {
+          document.getElementById('announcementBody').innerHTML = renderMarkdown(data.content);
+          document.getElementById('announcementSection').style.display = 'block';
+        }
+      } catch (err) {
+        // お知らせの読み込みに失敗した場合は非表示のまま
+      }
+    }
+
+    loadAnnouncement();
+
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('email').value;
@@ -859,6 +951,20 @@ export const HTML_SETTINGS = `
       </form>
     </div>
 
+    <!-- 管理者用: お知らせ編集（管理者のみ表示） -->
+    <div class="card" id="announcementEditorCard" style="display:none;">
+      <h2>📢 お知らせ編集</h2>
+      <p class="info">ログイン画面に表示するお知らせを入力してください。Markdown形式で記述できます。空欄にすると非表示になります。</p>
+      <div class="form-group">
+        <label for="announcementContent">お知らせ内容</label>
+        <textarea id="announcementContent" rows="8" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:4px;font-size:14px;box-sizing:border-box;resize:vertical;font-family:monospace;"></textarea>
+      </div>
+      <div class="actions">
+        <button type="button" id="saveAnnouncementBtn">保存</button>
+      </div>
+      <div id="announcementMessage"></div>
+    </div>
+
     <!-- アカウント削除 -->
     <div class="card card-danger">
       <h2>アカウントを削除する</h2>
@@ -899,6 +1005,12 @@ export const HTML_SETTINGS = `
           warningDiv.style.display = 'block';
         } else {
           warningDiv.style.display = 'none';
+        }
+        
+        // 管理者の場合はお知らせ編集カードを表示して現在の内容を読み込む
+        if (data.isAdmin) {
+          document.getElementById('announcementEditorCard').style.display = 'block';
+          loadAnnouncement();
         }
         
         if (data.blueskyHandle) {
@@ -1090,6 +1202,37 @@ export const HTML_SETTINGS = `
     }
 
     loadSettings();
+
+    // お知らせ読み込み（管理者用エディタの初期値設定）
+    async function loadAnnouncement() {
+      try {
+        const res = await fetch('/api/announcement');
+        const data = await res.json();
+        document.getElementById('announcementContent').value = data.content || '';
+      } catch (err) {
+        console.error('お知らせの読み込みに失敗しました', err);
+      }
+    }
+
+    // お知らせ保存
+    document.getElementById('saveAnnouncementBtn').addEventListener('click', async () => {
+      const messageDiv = document.getElementById('announcementMessage');
+      const content = document.getElementById('announcementContent').value;
+      try {
+        const res = await fetch('/api/announcement', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ content }),
+        });
+        const data = await res.json();
+        messageDiv.className = data.success ? 'success' : 'error';
+        messageDiv.textContent = data.success ? 'お知らせを保存しました' : (data.error || '保存に失敗しました');
+      } catch (err) {
+        messageDiv.className = 'error';
+        messageDiv.textContent = 'エラーが発生しました';
+      }
+    });
 
     // 転記元指定フォームの保存
     document.getElementById('settingsForm').addEventListener('submit', async (e) => {

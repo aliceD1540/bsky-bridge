@@ -223,6 +223,41 @@ async function handleRequest(request, env) {
     });
   }
 
+  // お知らせ取得（全ユーザー向け・認証不要）
+  if (path === '/api/announcement' && request.method === 'GET') {
+    const row = await env.DB.prepare('SELECT content FROM announcements WHERE id = 1').first();
+    return new Response(JSON.stringify({ content: row?.content || '' }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // お知らせ更新（管理者のみ）
+  if (path === '/api/announcement' && request.method === 'POST') {
+    const sessionToken = getSessionToken(request);
+    const session = await verifySession(env, sessionToken);
+    if (!session) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const userRow = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(session.userId).first();
+    const isAdmin = env.ADMIN_EMAIL && userRow?.email === env.ADMIN_EMAIL;
+    if (!isAdmin) {
+      return new Response(JSON.stringify({ error: 'Forbidden' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    const { content } = await request.json();
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO announcements (id, content, updated_at) VALUES (1, ?, datetime('now'))"
+    ).bind(content || '').run();
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   // メディアプロキシ: Threads CDN が直接取得できない画像を配信する
   if (path.startsWith('/media/') && request.method === 'GET') {
     const key = path.slice(7);
@@ -545,8 +580,8 @@ async function checkAndEnqueueForUser(env, user) {
     }, { delaySeconds: i * 5 });
   }
 
-  // キュー追加成功後、書き込み回数をインクリメント（管理者以外）
-  if (!isAdmin) {
+  // キュー追加成功後、書き込み回数をインクリメント（管理者も含む）
+  {
     const today = new Date().toISOString().split('T')[0];
     const countKey = `daily_post_count:${today}:${userId}`;
     const currentCountStr = await env.KV.get(countKey);
@@ -557,7 +592,7 @@ async function checkAndEnqueueForUser(env, user) {
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
     tomorrow.setUTCHours(0, 0, 0, 0);
     const ttl = Math.floor((tomorrow.getTime() - now.getTime()) / 1000) + 3600;
-    await env.KV.put(countKey, String(currentCount + 1), { expirationTtl: ttl });
+    await env.KV.put(countKey, String(currentCount + newPosts.length), { expirationTtl: ttl });
   }
 
   // 最新ポストの時刻を保存（次回cronのsince基準点）
