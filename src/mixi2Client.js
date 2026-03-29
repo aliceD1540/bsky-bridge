@@ -1,15 +1,15 @@
 // mixi2 APIクライアント
 // mixi2は自動投稿がBotアカウントのみ可能なため、OAuth 2.0を使用
 
-const MIXI2_API = 'https://mixi.jp/api/v2';
+const MIXI2_API = 'https://application-api.mixi.social';
 const MIXI2_AUTH_URL = 'https://application-auth.mixi.social/oauth2/token';
 
 // OAuth 2.0でアクセストークンを取得
 export async function fetchMixi2AccessToken(clientId, clientSecret) {
   const res = await fetch(MIXI2_AUTH_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
       grant_type: 'client_credentials',
       client_id: clientId,
       client_secret: clientSecret,
