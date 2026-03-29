@@ -4,16 +4,16 @@
 const MIXI2_API = 'https://application-api.mixi.social';
 const MIXI2_AUTH_URL = 'https://application-auth.mixi.social/oauth2/token';
 
-// OAuth 2.0でアクセストークンを取得
+// OAuth 2.0でアクセストークンを取得（AuthStyleInHeader: Basic認証でクライアント認証）
 export async function fetchMixi2AccessToken(clientId, clientSecret) {
+  const credentials = btoa(`${clientId}:${clientSecret}`);
   const res = await fetch(MIXI2_AUTH_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: clientId,
-      client_secret: clientSecret,
-    }),
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${credentials}`,
+    },
+    body: new URLSearchParams({ grant_type: 'client_credentials' }),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
