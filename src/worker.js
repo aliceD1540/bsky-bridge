@@ -351,12 +351,16 @@ async function handleRequest(request, env) {
 
     // mixi2認証情報が入力された場合、アクセストークンを自動取得して保存
     if (settings.mixi2ClientId && settings.mixi2ClientSecret) {
+      // コピー時に混入しやすい前後の空白を除去
+      settings.mixi2ClientId = settings.mixi2ClientId.trim();
+      settings.mixi2ClientSecret = settings.mixi2ClientSecret.trim();
       try {
         const { accessToken, expiresIn } = await fetchMixi2AccessToken(settings.mixi2ClientId, settings.mixi2ClientSecret);
         settings.mixi2AccessToken = accessToken;
         settings.mixi2TokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
       } catch (e) {
-        return new Response(JSON.stringify({ error: 'mixi2認証に失敗しました。クライアントIDとシークレットを確認してください。' }), {
+        console.error(`User ${session.userId}: mixi2 token fetch failed:`, e.message);
+        return new Response(JSON.stringify({ error: `mixi2認証に失敗しました: ${e.message}` }), {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
         });
