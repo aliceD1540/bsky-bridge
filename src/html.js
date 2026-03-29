@@ -870,6 +870,7 @@ export const HTML_SETTINGS = `
             <label class="radio-label"><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"><span>Bluesky</span><span class="text-danger" id="srcBlueskyWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
             <label class="radio-label"><input type="radio" name="sourcePlatform" value="misskey" id="srcMisskey"><span>Misskey.io</span><span class="text-danger" id="srcMisskeyWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
             <label class="radio-label"><input type="radio" name="sourcePlatform" value="threads" id="srcThreads"><span>Threads</span><span class="text-danger" id="srcThreadsWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
+            <label class="radio-label" id="srcMixi2Label" style="display:none;"><input type="radio" name="sourcePlatform" value="mixi2" id="srcMixi2"><span>mixi2（管理者のみ）</span><span class="text-danger" id="srcMixi2Warning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
           </div>
           <div class="actions">
             <button type="submit">保存</button>
@@ -917,6 +918,28 @@ export const HTML_SETTINGS = `
           <div id="threadsDisconnected" style="display:none">
             <p id="threadsExpiredMsg" class="error" style="display:none">Threadsトークンの有効期限が切れています。再度連携してください。</p>
             <button type="button" id="threadsConnectBtn">Threadsに接続</button>
+          </div>
+        </div>
+
+        <div id="mixi2Section" style="display:none;">
+          <h3>mixi2（管理者のみ） <span class="text-danger" id="mixi2StatusWarning" style="display:none;">認証情報未設定</span></h3>
+          <div class="form-group">
+            <label for="mixi2SourceUserId">転記元アカウントID</label>
+            <input type="text" id="mixi2SourceUserId" placeholder="転記元のユーザーID">
+            <div class="info">転記元となるmixi2アカウントのユーザーIDを入力してください。</div>
+          </div>
+          <div class="form-group">
+            <label for="mixi2ClientId">Botアカウント クライアントID</label>
+            <input type="password" id="mixi2ClientId" placeholder="変更しない場合は空欄のまま">
+            <div class="info">投稿用BotアカウントのOAuth 2.0クライアントIDを入力してください。</div>
+          </div>
+          <div class="form-group">
+            <label for="mixi2ClientSecret">Botアカウント クライアントシークレット</label>
+            <input type="password" id="mixi2ClientSecret" placeholder="変更しない場合は空欄のまま">
+            <div class="info">投稿用BotアカウントのOAuth 2.0クライアントシークレットを入力してください。</div>
+          </div>
+          <div id="mixi2DeleteBtnContainer" style="display:none;">
+            <button type="button" id="mixi2DeleteBtn" class="btn-danger">認証情報削除</button>
           </div>
         </div>
 
@@ -1007,9 +1030,11 @@ export const HTML_SETTINGS = `
           warningDiv.style.display = 'none';
         }
         
-        // 管理者の場合はお知らせ編集カードを表示して現在の内容を読み込む
+        // 管理者の場合はお知らせ編集カードとmixi2設定を表示
         if (data.isAdmin) {
           document.getElementById('announcementEditorCard').style.display = 'block';
+          document.getElementById('mixi2Section').style.display = 'block';
+          document.getElementById('srcMixi2Label').style.display = 'block';
           loadAnnouncement();
         }
         
@@ -1021,6 +1046,18 @@ export const HTML_SETTINGS = `
         updateAuthStatus('bluesky', data.hasBlueskyAppPassword);
         updateAuthStatus('misskey', data.hasMisskeyToken);
         updateAuthStatus('threads', data.hasThreadsToken);
+        
+        // 管理者の場合はmixi2の認証状態も更新
+        if (data.isAdmin) {
+          updateAuthStatus('mixi2', data.hasMixi2Config);
+          if (data.mixi2SourceUserId) {
+            document.getElementById('mixi2SourceUserId').value = data.mixi2SourceUserId;
+          }
+          if (data.hasMixi2Config) {
+            document.getElementById('mixi2ClientId').placeholder = '設定済み（変更する場合のみ入力）';
+            document.getElementById('mixi2ClientSecret').placeholder = '設定済み（変更する場合のみ入力）';
+          }
+        }
         
         // アプリパスワード設定状態を反映
         if (data.hasBlueskyAppPassword) {
@@ -1187,6 +1224,39 @@ export const HTML_SETTINGS = `
       }
     });
 
+    // mixi2 認証情報削除ボタン（管理者のみ）
+    const mixi2DeleteBtn = document.getElementById('mixi2DeleteBtn');
+    if (mixi2DeleteBtn) {
+      mixi2DeleteBtn.addEventListener('click', async () => {
+        if (!confirm('mixi2の認証情報を削除しますか？')) return;
+        try {
+          const res = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              mixi2SourceUserId: null,
+              mixi2ClientId: null,
+              mixi2ClientSecret: null,
+            }),
+          });
+          if (res.ok) {
+            document.getElementById('mixi2SourceUserId').value = '';
+            document.getElementById('mixi2ClientId').value = '';
+            document.getElementById('mixi2ClientSecret').value = '';
+            document.getElementById('mixi2ClientId').placeholder = '変更しない場合は空欄のまま';
+            document.getElementById('mixi2ClientSecret').placeholder = '変更しない場合は空欄のまま';
+            updateAuthStatus('mixi2', false);
+            const messageDiv = document.getElementById('credentialsMessage');
+            messageDiv.className = 'success';
+            messageDiv.textContent = 'mixi2の認証情報を削除しました';
+          }
+        } catch (err) {
+          console.error('mixi2認証情報削除に失敗しました', err);
+        }
+      });
+    }
+
     // OAuth認証後のメッセージ表示
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('threads_connected') === '1') {
@@ -1271,6 +1341,9 @@ export const HTML_SETTINGS = `
         blueskyHandle: document.getElementById('blueskyHandle').value,
         blueskyAppPassword: document.getElementById('blueskyAppPassword').value,
         misskeyToken: document.getElementById('misskeyToken').value,
+        mixi2SourceUserId: document.getElementById('mixi2SourceUserId').value,
+        mixi2ClientId: document.getElementById('mixi2ClientId').value,
+        mixi2ClientSecret: document.getElementById('mixi2ClientSecret').value,
       };
 
       try {

@@ -17,6 +17,14 @@ import {
   normalizeThreadsPost,
   postToThreads,
 } from './threadsClient.js';
+import {
+  fetchMixi2Identity,
+  fetchMixi2PostsSince,
+  fetchMixi2Post,
+  normalizeMixi2Post,
+  postToMixi2,
+  fetchMixi2AccessToken,
+} from './mixi2Client.js';
 import { getCachedSourceIdentity, setCachedSourceIdentity } from './kvStore.js';
 import { proxyImages } from './mediaProxy.js';
 
@@ -104,6 +112,33 @@ export const SOURCE_ADAPTERS = {
       return normalizeThreadsPost(raw);
     },
   },
+
+  mixi2: {
+    isConfigured(userSettings) {
+      return !!(userSettings.mixi2SourceUserId);
+    },
+
+    async getIdentity(env, userSettings) {
+      const cached = await getCachedSourceIdentity(env, 'mixi2', userSettings.userId);
+      if (cached) return cached;
+      const identity = await fetchMixi2Identity(userSettings.mixi2SourceUserId);
+      await setCachedSourceIdentity(env, 'mixi2', userSettings.userId, identity);
+      return identity;
+    },
+
+    async pollNewPosts(_env, userSettings, since) {
+      return fetchMixi2PostsSince({
+        userId: userSettings.mixi2SourceUserId,
+        since,
+      });
+    },
+
+    async fetchAndNormalizePost(_env, _userSettings, post) {
+      if (typeof post === 'object' && post !== null && post.id) return normalizeMixi2Post(post);
+      const raw = await fetchMixi2Post(post);
+      return normalizeMixi2Post(raw);
+    },
+  },
 };
 
 // デスティネーションアダプター定義
@@ -141,6 +176,20 @@ export const DEST_ADAPTERS = {
         appPassword: userSettings.blueskyAppPassword,
         text: formatted.text,
         images: formatted.images,
+      });
+    },
+  },
+
+  mixi2: {
+    isConfigured(userSettings) {
+      return !!(userSettings.mixi2AccessToken && userSettings.mixi2ClientId && userSettings.mixi2ClientSecret);
+    },
+
+    async post(_env, userSettings, formatted) {
+      return postToMixi2({
+        text: formatted.text,
+        images: formatted.images,
+        accessToken: userSettings.mixi2AccessToken,
       });
     },
   },

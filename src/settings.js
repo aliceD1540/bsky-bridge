@@ -11,6 +11,11 @@ export async function saveSettings(env, userId, settings) {
     misskeyToken,
     threadsToken,
     threadsTokenExpiresAt,
+    mixi2SourceUserId,
+    mixi2ClientId,
+    mixi2ClientSecret,
+    mixi2AccessToken,
+    mixi2TokenExpiresAt,
   } = settings;
 
   const now = new Date().toISOString();
@@ -26,7 +31,15 @@ export async function saveSettings(env, userId, settings) {
       misskey_token_iv,
       threads_token_encrypted,
       threads_token_iv,
-      threads_token_expires_at
+      threads_token_expires_at,
+      mixi2_source_user_id,
+      mixi2_client_id_encrypted,
+      mixi2_client_id_iv,
+      mixi2_client_secret_encrypted,
+      mixi2_client_secret_iv,
+      mixi2_access_token_encrypted,
+      mixi2_access_token_iv,
+      mixi2_token_expires_at
     FROM user_settings WHERE user_id = ?
   `)
     .bind(userId)
@@ -54,10 +67,29 @@ export async function saveSettings(env, userId, settings) {
     'threads_token_encrypted',
     'threads_token_iv'
   );
+  const mixi2ClientIdEnc = await encryptOrKeep(
+    mixi2ClientId,
+    'mixi2_client_id_encrypted',
+    'mixi2_client_id_iv'
+  );
+  const mixi2ClientSecretEnc = await encryptOrKeep(
+    mixi2ClientSecret,
+    'mixi2_client_secret_encrypted',
+    'mixi2_client_secret_iv'
+  );
+  const mixi2AccessTokenEnc = await encryptOrKeep(
+    mixi2AccessToken,
+    'mixi2_access_token_encrypted',
+    'mixi2_access_token_iv'
+  );
 
   const newThreadsExpiresAt = threadsTokenExpiresAt === undefined
     ? (existing?.threads_token_expires_at ?? null)
     : threadsTokenExpiresAt;
+  const newMixi2SourceUserId = mixi2SourceUserId || existing?.mixi2_source_user_id || null;
+  const newMixi2TokenExpiresAt = mixi2TokenExpiresAt === undefined
+    ? (existing?.mixi2_token_expires_at ?? null)
+    : mixi2TokenExpiresAt;
   const newSourcePlatform = sourcePlatform || existing?.source_platform || 'bluesky';
   const newBlueskyHandle = blueskyHandle || existing?.bluesky_handle || null;
 
@@ -73,6 +105,14 @@ export async function saveSettings(env, userId, settings) {
         threads_token_encrypted = ?,
         threads_token_iv = ?,
         threads_token_expires_at = ?,
+        mixi2_source_user_id = ?,
+        mixi2_client_id_encrypted = ?,
+        mixi2_client_id_iv = ?,
+        mixi2_client_secret_encrypted = ?,
+        mixi2_client_secret_iv = ?,
+        mixi2_access_token_encrypted = ?,
+        mixi2_access_token_iv = ?,
+        mixi2_token_expires_at = ?,
         updated_at = ?
       WHERE user_id = ?
     `)
@@ -86,6 +126,14 @@ export async function saveSettings(env, userId, settings) {
         threadsTokenEnc.cipherText,
         threadsTokenEnc.iv,
         newThreadsExpiresAt,
+        newMixi2SourceUserId,
+        mixi2ClientIdEnc.cipherText,
+        mixi2ClientIdEnc.iv,
+        mixi2ClientSecretEnc.cipherText,
+        mixi2ClientSecretEnc.iv,
+        mixi2AccessTokenEnc.cipherText,
+        mixi2AccessTokenEnc.iv,
+        newMixi2TokenExpiresAt,
         now,
         userId
       )
@@ -103,8 +151,16 @@ export async function saveSettings(env, userId, settings) {
         threads_token_encrypted,
         threads_token_iv,
         threads_token_expires_at,
+        mixi2_source_user_id,
+        mixi2_client_id_encrypted,
+        mixi2_client_id_iv,
+        mixi2_client_secret_encrypted,
+        mixi2_client_secret_iv,
+        mixi2_access_token_encrypted,
+        mixi2_access_token_iv,
+        mixi2_token_expires_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         userId,
@@ -117,6 +173,14 @@ export async function saveSettings(env, userId, settings) {
         threadsTokenEnc.cipherText,
         threadsTokenEnc.iv,
         threadsTokenExpiresAt ?? null,
+        newMixi2SourceUserId,
+        mixi2ClientIdEnc.cipherText,
+        mixi2ClientIdEnc.iv,
+        mixi2ClientSecretEnc.cipherText,
+        mixi2ClientSecretEnc.iv,
+        mixi2AccessTokenEnc.cipherText,
+        mixi2AccessTokenEnc.iv,
+        mixi2TokenExpiresAt ?? null,
         now
       )
       .run();
@@ -137,7 +201,15 @@ export async function getSettings(env, userId) {
       misskey_token_iv,
       threads_token_encrypted,
       threads_token_iv,
-      threads_token_expires_at
+      threads_token_expires_at,
+      mixi2_source_user_id,
+      mixi2_client_id_encrypted,
+      mixi2_client_id_iv,
+      mixi2_client_secret_encrypted,
+      mixi2_client_secret_iv,
+      mixi2_access_token_encrypted,
+      mixi2_access_token_iv,
+      mixi2_token_expires_at
     FROM user_settings
     WHERE user_id = ?
   `)
@@ -155,6 +227,15 @@ export async function getSettings(env, userId) {
   const threadsToken = row.threads_token_encrypted
     ? await decrypt(row.threads_token_encrypted, row.threads_token_iv, env)
     : null;
+  const mixi2ClientId = row.mixi2_client_id_encrypted
+    ? await decrypt(row.mixi2_client_id_encrypted, row.mixi2_client_id_iv, env)
+    : null;
+  const mixi2ClientSecret = row.mixi2_client_secret_encrypted
+    ? await decrypt(row.mixi2_client_secret_encrypted, row.mixi2_client_secret_iv, env)
+    : null;
+  const mixi2AccessToken = row.mixi2_access_token_encrypted
+    ? await decrypt(row.mixi2_access_token_encrypted, row.mixi2_access_token_iv, env)
+    : null;
 
   return {
     sourcePlatform: row.source_platform || 'bluesky',
@@ -163,6 +244,11 @@ export async function getSettings(env, userId) {
     misskeyToken,
     threadsToken,
     threadsTokenExpiresAt: row.threads_token_expires_at,
+    mixi2SourceUserId: row.mixi2_source_user_id,
+    mixi2ClientId,
+    mixi2ClientSecret,
+    mixi2AccessToken,
+    mixi2TokenExpiresAt: row.mixi2_token_expires_at,
   };
 }
 
@@ -183,7 +269,12 @@ export async function getPublicSettings(env, userId) {
       bluesky_app_password_encrypted,
       misskey_token_encrypted,
       threads_token_encrypted,
-      threads_token_expires_at
+      threads_token_expires_at,
+      mixi2_source_user_id,
+      mixi2_client_id_encrypted,
+      mixi2_client_secret_encrypted,
+      mixi2_access_token_encrypted,
+      mixi2_token_expires_at
     FROM user_settings
     WHERE user_id = ?
   `)
@@ -206,6 +297,9 @@ export async function getPublicSettings(env, userId) {
       hasMisskeyToken: false,
       hasThreadsToken: false,
       threadsTokenExpiresAt: null,
+      hasMixi2Config: false,
+      mixi2SourceUserId: null,
+      mixi2TokenExpiresAt: null,
       todayPostCount: countStr ? parseInt(countStr, 10) : 0,
     };
   }
@@ -224,6 +318,9 @@ export async function getPublicSettings(env, userId) {
     hasMisskeyToken: !!(row.misskey_token_encrypted),
     hasThreadsToken: !!(row.threads_token_encrypted),
     threadsTokenExpiresAt: row.threads_token_expires_at,
+    hasMixi2Config: !!(row.mixi2_source_user_id && row.mixi2_client_id_encrypted && row.mixi2_client_secret_encrypted),
+    mixi2SourceUserId: row.mixi2_source_user_id,
+    mixi2TokenExpiresAt: row.mixi2_token_expires_at,
     todayPostCount: countStr ? parseInt(countStr, 10) : 0,
   };
 }
@@ -244,7 +341,15 @@ export async function getAllUserSettings(env) {
       s.misskey_token_iv,
       s.threads_token_encrypted,
       s.threads_token_iv,
-      s.threads_token_expires_at
+      s.threads_token_expires_at,
+      s.mixi2_source_user_id,
+      s.mixi2_client_id_encrypted,
+      s.mixi2_client_id_iv,
+      s.mixi2_client_secret_encrypted,
+      s.mixi2_client_secret_iv,
+      s.mixi2_access_token_encrypted,
+      s.mixi2_access_token_iv,
+      s.mixi2_token_expires_at
     FROM users u
     LEFT JOIN user_settings s ON u.id = s.user_id
     WHERE
@@ -253,6 +358,7 @@ export async function getAllUserSettings(env) {
         (s.source_platform = 'bluesky' AND s.bluesky_handle IS NOT NULL)
         OR (s.source_platform = 'misskey' AND s.misskey_token_encrypted IS NOT NULL)
         OR (s.source_platform = 'threads' AND s.threads_token_encrypted IS NOT NULL)
+        OR (s.source_platform = 'mixi2' AND s.mixi2_source_user_id IS NOT NULL)
       )
   `).all();
 
@@ -267,6 +373,15 @@ export async function getAllUserSettings(env) {
     const threadsToken = row.threads_token_encrypted
       ? await decrypt(row.threads_token_encrypted, row.threads_token_iv, env)
       : null;
+    const mixi2ClientId = row.mixi2_client_id_encrypted
+      ? await decrypt(row.mixi2_client_id_encrypted, row.mixi2_client_id_iv, env)
+      : null;
+    const mixi2ClientSecret = row.mixi2_client_secret_encrypted
+      ? await decrypt(row.mixi2_client_secret_encrypted, row.mixi2_client_secret_iv, env)
+      : null;
+    const mixi2AccessToken = row.mixi2_access_token_encrypted
+      ? await decrypt(row.mixi2_access_token_encrypted, row.mixi2_access_token_iv, env)
+      : null;
 
     settings.push({
       userId: row.user_id,
@@ -278,6 +393,11 @@ export async function getAllUserSettings(env) {
       misskeyToken,
       threadsToken,
       threadsTokenExpiresAt: row.threads_token_expires_at,
+      mixi2SourceUserId: row.mixi2_source_user_id,
+      mixi2ClientId,
+      mixi2ClientSecret,
+      mixi2AccessToken,
+      mixi2TokenExpiresAt: row.mixi2_token_expires_at,
     });
   }
 
