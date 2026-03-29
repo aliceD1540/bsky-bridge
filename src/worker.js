@@ -2,6 +2,7 @@
 
 import { fetchBlueskyPostByUri, verifyBlueskyCredentials } from './blueskyClient.js';
 import { refreshThreadsToken, buildThreadsAuthUrl, exchangeCodeForToken, exchangeForLongLivedToken } from './threadsClient.js';
+import { fetchMixi2AccessToken } from './mixi2Client.js';
 import { isPosted, markPosted, isPostedToPlatform, markPostedToPlatform, getLastPostedAt, setLastPostedAt } from './kvStore.js';
 import { formatPost } from './formatPost.js';
 import { register, login, logout, verifySession, changePassword, deleteAccount, verifyEmail, requestPasswordReset, resetPassword } from './auth.js';
@@ -106,6 +107,36 @@ async function getEffectiveThreadsToken(env, user) {
   }
 
   return threadsToken;
+}
+
+// mixi2アクセストークンの有効性を確認し、期限切れの場合は再取得する
+async function getEffectiveMixi2Token(env, user) {
+  const { userId, mixi2AccessToken, mixi2TokenExpiresAt, mixi2ClientId, mixi2ClientSecret } = user;
+
+  if (!mixi2AccessToken) return null;
+  if (!mixi2ClientId || !mixi2ClientSecret) return mixi2AccessToken;
+
+  const now = new Date();
+  const expiresAt = mixi2TokenExpiresAt ? new Date(mixi2TokenExpiresAt) : null;
+
+  if (expiresAt && expiresAt <= now) {
+    // 期限切れ → clientId/clientSecret で再取得
+    try {
+      const { accessToken: newToken, expiresIn } = await fetchMixi2AccessToken(mixi2ClientId, mixi2ClientSecret);
+      const newExpiry = new Date(now.getTime() + expiresIn * 1000);
+      await saveSettings(env, userId, {
+        mixi2AccessToken: newToken,
+        mixi2TokenExpiresAt: newExpiry.toISOString(),
+      });
+      console.log(`User ${userId}: mixi2 token refreshed, expires:`, newExpiry.toISOString());
+      return newToken;
+    } catch (e) {
+      console.error(`User ${userId}: Failed to refresh mixi2 token:`, e);
+      return null;
+    }
+  }
+
+  return mixi2AccessToken;
 }
 
 async function handleRequest(request, env) {
@@ -315,6 +346,20 @@ async function handleRequest(request, env) {
             headers: { 'Content-Type': 'application/json' },
           });
         }
+      }
+    }
+
+    // mixi2認証情報が入力された場合、アクセストークンを自動取得して保存
+    if (settings.mixi2ClientId && settings.mixi2ClientSecret) {
+      try {
+        const { accessToken, expiresIn } = await fetchMixi2AccessToken(settings.mixi2ClientId, settings.mixi2ClientSecret);
+        settings.mixi2AccessToken = accessToken;
+        settings.mixi2TokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+      } catch (e) {
+        return new Response(JSON.stringify({ error: 'mixi2認証に失敗しました。クライアントIDとシークレットを確認してください。' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
     }
 
@@ -644,6 +689,11 @@ async function handleQueue(batch, env) {
         threadsToken: userSettings.threadsToken,
         threadsTokenExpiresAt: userSettings.threadsTokenExpiresAt,
       });
+    }
+
+    // mixi2 アクセストークンの有効性確認・再取得（必要な場合）
+    if (userSettings.mixi2AccessToken) {
+      userSettings.mixi2AccessToken = await getEffectiveMixi2Token(env, { userId, ...userSettings });
     }
 
     const userWithId = { ...userSettings, userId };
