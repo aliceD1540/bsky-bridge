@@ -1034,7 +1034,7 @@ export const HTML_SETTINGS = `
         if (data.isAdmin) {
           document.getElementById('announcementEditorCard').style.display = 'block';
           document.getElementById('mixi2Section').style.display = 'block';
-          document.getElementById('srcMixi2Label').style.display = 'block';
+          document.getElementById('srcMixi2Label').style.display = 'flex';
           loadAnnouncement();
         }
         
