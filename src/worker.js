@@ -2,7 +2,7 @@
 
 import { fetchBlueskyPostByUri, verifyBlueskyCredentials } from './blueskyClient.js';
 import { refreshThreadsToken, buildThreadsAuthUrl, exchangeCodeForToken, exchangeForLongLivedToken } from './threadsClient.js';
-import { isPosted, markPosted, getLastPostedAt, setLastPostedAt } from './kvStore.js';
+import { isPosted, markPosted, isPostedToPlatform, markPostedToPlatform, getLastPostedAt, setLastPostedAt } from './kvStore.js';
 import { formatPost } from './formatPost.js';
 import { register, login, logout, verifySession, changePassword, deleteAccount, verifyEmail, requestPasswordReset, resetPassword } from './auth.js';
 import { saveSettings, getSettings, getPublicSettings, getAllUserSettings } from './settings.js';
@@ -697,20 +697,45 @@ async function handleQueue(batch, env) {
     const formatted = { ...formattedPost, sourcePlatform };
 
     try {
+      // 既に投稿済みの宛先を除外してリトライ時の重複投稿を防ぐ
+      const pendingDestinations = (
+        await Promise.all(
+          destinations.map(async (p) => ({
+            platform: p,
+            done: await isPostedToPlatform(env, p, kvKey),
+          }))
+        )
+      ).filter((r) => !r.done).map((r) => r.platform);
+
+      if (pendingDestinations.length === 0) {
+        await markPosted(env, kvKey, post.createdAt);
+        message.ack();
+        continue;
+      }
+
       const results = await Promise.allSettled(
-        destinations.map((platform) =>
+        pendingDestinations.map((platform) =>
           DEST_ADAPTERS[platform].post(env, userWithId, formatted)
+        )
+      );
+
+      // 成功した宛先は即座にKVへ記録
+      await Promise.all(
+        results.map((r, i) =>
+          r.status === 'fulfilled'
+            ? markPostedToPlatform(env, pendingDestinations[i], kvKey, post.createdAt)
+            : Promise.resolve()
         )
       );
 
       const failed = results.filter((r) => r.status === 'rejected');
       if (failed.length > 0) {
         failed.forEach((r) => console.error(`Post failed for user ${userId}:`, r.reason));
-        // 一部でも失敗した場合はリトライ（at-least-once）
+        // 失敗した宛先のみ次回リトライ（成功済みは markPostedToPlatform で除外される）
         message.retry();
       } else {
         await markPosted(env, kvKey, post.createdAt);
-        console.log(`User ${userId}: Posted to [${destinations.join(', ')}]:`, postId);
+        console.log(`User ${userId}: Posted to [${pendingDestinations.join(', ')}]:`, postId);
         message.ack();
       }
     } catch (e) {
