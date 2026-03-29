@@ -110,7 +110,7 @@ export async function fetchBlueskyPosts({ handle, since }) {
 }
 
 export async function fetchBlueskyPostByUri(uri) {
-  const url = `${BLUESKY_API_ENDPOINT}/app.bsky.feed.getPosts?uris[]=${encodeURIComponent(uri)}`;
+  const url = `${BLUESKY_API_ENDPOINT}/app.bsky.feed.getPosts?uris=${encodeURIComponent(uri)}`;
   const res = await fetch(url);
   if (!res.ok) {
     const body = await res.text().catch(() => '');
