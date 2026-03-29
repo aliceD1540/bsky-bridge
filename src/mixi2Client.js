@@ -149,21 +149,47 @@ async function grpcCall(method, accessToken, reqBytes) {
 
 // ---- OAuth ----
 
-// OAuth 2.0でアクセストークンを取得（HTTP Basic認証 + client_credentials）
+// OAuth 2.0でアクセストークンを取得
+// Basic Auth（AuthStyleInHeader）と body params（AuthStyleInParams）の両方を試みる
 export async function fetchMixi2AccessToken(clientId, clientSecret) {
-  const credentials = btoa(`${clientId}:${clientSecret}`);
-  const res = await fetch(MIXI2_AUTH_URL, {
+  // RFC 6749 §2.3.1: Basic Auth 使用時は client_id / client_secret を URL エンコードしてから base64 化
+  const credentials = btoa(`${encodeURIComponent(clientId)}:${encodeURIComponent(clientSecret)}`);
+
+  // まず Basic Auth 方式を試みる
+  let res = await fetch(MIXI2_AUTH_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       'Authorization': `Basic ${credentials}`,
     },
-    body: new URLSearchParams({ grant_type: 'client_credentials' }),
+    body: 'grant_type=client_credentials',
   });
-  if (!res.ok) {
+
+  // Basic Auth で invalid_client の場合は body params 方式（AuthStyleInParams）にフォールバック
+  if (res.status === 401 || res.status === 400) {
+    const firstError = await res.text().catch(() => '');
+    if (firstError.includes('invalid_client')) {
+      res = await fetch(MIXI2_AUTH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'client_credentials',
+          client_id: clientId,
+          client_secret: clientSecret,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`mixi2 oauth/token failed (both auth styles): ${res.status} - ${text} [first attempt: ${firstError}]`);
+      }
+    } else {
+      throw new Error(`mixi2 oauth/token failed: ${res.status} - ${firstError}`);
+    }
+  } else if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`mixi2 oauth/token failed: ${res.status} - ${text}`);
   }
+
   const data = await res.json();
   return {
     accessToken: data.access_token,
