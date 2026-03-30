@@ -114,23 +114,16 @@ export const SOURCE_ADAPTERS = {
   },
 
   mixi2: {
-    isConfigured(userSettings) {
-      return !!(userSettings.mixi2SourceUserId);
+    isConfigured(_userSettings) {
+      return false;
     },
 
-    async getIdentity(env, userSettings) {
-      const cached = await getCachedSourceIdentity(env, 'mixi2', userSettings.userId);
-      if (cached) return cached;
-      const identity = await fetchMixi2Identity(userSettings.mixi2SourceUserId);
-      await setCachedSourceIdentity(env, 'mixi2', userSettings.userId, identity);
-      return identity;
+    async getIdentity(_env, _userSettings) {
+      return null;
     },
 
-    async pollNewPosts(_env, userSettings, since) {
-      return fetchMixi2PostsSince({
-        userId: userSettings.mixi2SourceUserId,
-        since,
-      });
+    async pollNewPosts(_env, _userSettings, _since) {
+      return [];
     },
 
     async fetchAndNormalizePost(_env, _userSettings, post) {

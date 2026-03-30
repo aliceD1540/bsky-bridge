@@ -152,8 +152,8 @@ async function grpcCall(method, accessToken, reqBytes) {
 // OAuth 2.0でアクセストークンを取得
 // Basic Auth（AuthStyleInHeader）と body params（AuthStyleInParams）の両方を試みる
 export async function fetchMixi2AccessToken(clientId, clientSecret) {
-  // RFC 6749 §2.3.1: Basic Auth 使用時は client_id / client_secret を URL エンコードしてから base64 化
-  const credentials = btoa(`${encodeURIComponent(clientId)}:${encodeURIComponent(clientSecret)}`);
+  // mixi2 は URL エンコードなしの生の値を Basic Auth で期待する（RFC 6749 §2.3.1 の encodeURIComponent は不要）
+  const credentials = btoa(`${clientId}:${clientSecret}`);
 
   // まず Basic Auth 方式を試みる
   let res = await fetch(MIXI2_AUTH_URL, {

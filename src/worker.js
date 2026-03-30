@@ -349,6 +349,14 @@ async function handleRequest(request, env) {
       }
     }
 
+    // mixi2 は転記元として使用不可（なりすましが容易なため）
+    if (settings.sourcePlatform === 'mixi2') {
+      return new Response(JSON.stringify({ error: 'mixi2は転記元として使用できません。' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     // mixi2認証情報が入力された場合、アクセストークンを自動取得して保存
     if (settings.mixi2ClientId && settings.mixi2ClientSecret) {
       // コピー時に混入しやすい前後の空白を除去
