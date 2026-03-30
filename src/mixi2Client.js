@@ -274,13 +274,16 @@ async function uploadImage(imageUrl, accessToken) {
   const mediaId = pbStr(initiateFields.get(1)?.[0]);
   const uploadUrl = pbStr(initiateFields.get(2)?.[0]);
 
-  // 3. presigned URL に画像データを PUT
+  // 3. presigned URL に画像データを PUT（Content-Type なし: 署名に含まれない場合に 401/403 が返るため）
+  const arrayBuffer = await blob.arrayBuffer();
   const uploadRes = await fetch(uploadUrl, {
     method: 'PUT',
-    headers: { 'Content-Type': contentType },
-    body: blob,
+    body: arrayBuffer,
   });
-  if (!uploadRes.ok) throw new Error(`mixi2 media PUT failed: ${uploadRes.status}`);
+  if (!uploadRes.ok) {
+    const errBody = await uploadRes.text().catch(() => '');
+    throw new Error(`mixi2 media PUT failed: ${uploadRes.status}${errBody ? ` - ${errBody}` : ''}`);
+  }
 
   // 4. GetPostMediaStatus (gRPC) で処理完了を待機
   //    GetPostMediaStatusResponse.status: STATUS_COMPLETED=3, STATUS_FAILED=4
