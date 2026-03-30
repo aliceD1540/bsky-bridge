@@ -274,10 +274,10 @@ async function uploadImage(imageUrl, accessToken) {
   const mediaId = pbStr(initiateFields.get(1)?.[0]);
   const uploadUrl = pbStr(initiateFields.get(2)?.[0]);
 
-  // 3. presigned URL に画像データを PUT（mixi2独自エンドポイントのためBearerトークンが必要）
+  // 3. upload_url に画像データを POST（mixi2独自エンドポイント、Bearer認証が必要）
   const arrayBuffer = await blob.arrayBuffer();
   const uploadRes = await fetch(uploadUrl, {
-    method: 'PUT',
+    method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': contentType,
