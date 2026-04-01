@@ -86,7 +86,8 @@ export async function saveSettings(env, userId, settings) {
   const newThreadsExpiresAt = threadsTokenExpiresAt === undefined
     ? (existing?.threads_token_expires_at ?? null)
     : threadsTokenExpiresAt;
-  const newMixi2SourceUserId = mixi2SourceUserId || existing?.mixi2_source_user_id || null;
+  // undefined → 既存値を維持、null → クリア、文字列 → 上書き（||では null がフォールバックしてしまうため明示的に比較）
+  const newMixi2SourceUserId = mixi2SourceUserId !== undefined ? mixi2SourceUserId : (existing?.mixi2_source_user_id ?? null);
   const newMixi2TokenExpiresAt = mixi2TokenExpiresAt === undefined
     ? (existing?.mixi2_token_expires_at ?? null)
     : mixi2TokenExpiresAt;

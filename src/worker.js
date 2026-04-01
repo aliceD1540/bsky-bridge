@@ -349,6 +349,19 @@ async function handleRequest(request, env) {
       }
     }
 
+    // mixi2設定は管理者のみ変更可能（なりすまし防止）
+    const mixi2SettingKeys = ['mixi2SourceUserId', 'mixi2ClientId', 'mixi2ClientSecret', 'mixi2AccessToken'];
+    if (mixi2SettingKeys.some(k => k in settings) || settings.sourcePlatform === 'mixi2') {
+      // ユーザーが存在しない・ADMIN_EMAILが未設定・メールが一致しない場合はすべて403
+      const adminUserRow = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(session.userId).first();
+      if (!(env.ADMIN_EMAIL && adminUserRow?.email === env.ADMIN_EMAIL)) {
+        return new Response(JSON.stringify({ error: 'mixi2設定は管理者のみが変更できます。' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // mixi2認証情報が入力された場合、アクセストークンを自動取得して保存
     if (settings.mixi2ClientId && settings.mixi2ClientSecret) {
       // コピー時に混入しやすい前後の空白を除去

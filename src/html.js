@@ -1238,6 +1238,7 @@ export const HTML_SETTINGS = `
               mixi2SourceUserId: null,
               mixi2ClientId: null,
               mixi2ClientSecret: null,
+              mixi2AccessToken: null,
             }),
           });
           if (res.ok) {

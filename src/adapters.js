@@ -21,7 +21,6 @@ import {
   fetchMixi2Identity,
   fetchMixi2PostsSince,
   fetchMixi2Post,
-  normalizeMixi2Post,
   postToMixi2,
   fetchMixi2AccessToken,
 } from './mixi2Client.js';
@@ -133,10 +132,12 @@ export const SOURCE_ADAPTERS = {
       });
     },
 
-    async fetchAndNormalizePost(_env, _userSettings, post) {
-      if (typeof post === 'object' && post !== null && post.id) return normalizeMixi2Post(post);
-      const raw = await fetchMixi2Post(post);
-      return normalizeMixi2Post(raw);
+    async fetchAndNormalizePost(_env, userSettings, post) {
+      // Already normalized objects have uri field
+      if (typeof post === 'object' && post !== null && post.uri) return post;
+      // Fetch from gRPC API; fetchMixi2Post returns an already-normalized object.
+      // When accessToken is null/undefined, fetchMixi2Post returns null (handled by caller).
+      return fetchMixi2Post(typeof post === 'string' ? post : String(post), userSettings.mixi2AccessToken);
     },
   },
 };
