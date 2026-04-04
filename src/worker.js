@@ -10,6 +10,7 @@ import { saveSettings, getSettings, getPublicSettings, getAllUserSettings } from
 import { SOURCE_ADAPTERS, DEST_ADAPTERS, getDestinationsForUser } from './adapters.js';
 import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS, HTML_VERIFY_EMAIL, HTML_FORGOT_PASSWORD, HTML_RESET_PASSWORD } from './html.js';
 import { serveProxiedImage } from './mediaProxy.js';
+import { sendReplyNotification } from './notificationService.js';
 
 const DAILY_POST_LIMIT = 20;
 
@@ -252,6 +253,64 @@ async function handleRequest(request, env) {
       status: result.success ? 200 : 400,
       headers: { 'Content-Type': 'application/json' },
     });
+  }
+
+  // Webhook: リプライ通知
+  if (path === '/api/webhook/reply' && request.method === 'POST') {
+    try {
+      const { userId, webhookToken, platform, postUrl } = await request.json();
+      
+      if (!userId || !webhookToken || !platform) {
+        return new Response(JSON.stringify({ error: 'Missing required parameters' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const settings = await getSettings(env, userId);
+      if (!settings) {
+        return new Response(JSON.stringify({ error: 'User not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (settings.webhookToken !== webhookToken) {
+        return new Response(JSON.stringify({ error: 'Invalid webhook token' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const notifyKey = `notifyReply${platform.charAt(0).toUpperCase()}${platform.slice(1)}`;
+      if (!settings[notifyKey]) {
+        return new Response(JSON.stringify({ 
+          success: false, 
+          message: `Notification for ${platform} is disabled` 
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const result = await sendReplyNotification(
+        settings.sourcePlatform,
+        settings,
+        platform,
+        postUrl || ''
+      );
+
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      console.error('Webhook error:', error);
+      return new Response(JSON.stringify({ error: 'Internal server error' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
   }
 
   // お知らせ取得（全ユーザー向け・認証不要）

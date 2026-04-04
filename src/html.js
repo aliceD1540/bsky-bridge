@@ -104,6 +104,7 @@ const MODAL_HTML = `
             <li><b>Threads</b>：「Threadsに接続」ボタンから OAuth 認証を完了します（完了時に自動保存）。</li>
           </ul>
         </li>
+        <li>（オプション）設定画面「リプライ通知設定」で、転記先でリプライがあった場合に通知を受け取るプラットフォームを選択できます。</li>
         <li>設定完了後、5分以内に転記が開始されます。転記元以外の認証済みプラットフォームがすべて転記先になります。認証情報が未設定のプラットフォームは転記先から除外されます（設定画面に赤文字で表示されます）。</li>
       </ol>
 
@@ -948,6 +949,56 @@ export const HTML_SETTINGS = `
         </div>
         <div id="credentialsMessage"></div>
       </div>
+
+      <div class="card">
+        <h2>リプライ通知設定</h2>
+        <p class="info">転記先でリプライがあった場合、転記元アカウントに通知を送信できます。各プラットフォームごとに通知のON/OFFを設定してください。</p>
+        
+        <div class="form-group">
+          <label class="radio-label" style="cursor:auto;">
+            <input type="checkbox" id="notifyReplyBluesky" style="width:auto;">
+            <span>Blueskyのリプライを通知</span>
+          </label>
+        </div>
+        
+        <div class="form-group">
+          <label class="radio-label" style="cursor:auto;">
+            <input type="checkbox" id="notifyReplyMisskey" style="width:auto;">
+            <span>Misskey.ioのリプライを通知</span>
+          </label>
+        </div>
+        
+        <div class="form-group">
+          <label class="radio-label" style="cursor:auto;">
+            <input type="checkbox" id="notifyReplyThreads" style="width:auto;">
+            <span>Threadsのリプライを通知</span>
+          </label>
+        </div>
+        
+        <div class="form-group" id="notifyReplyMixi2Container" style="display:none;">
+          <label class="radio-label" style="cursor:auto;">
+            <input type="checkbox" id="notifyReplyMixi2" style="width:auto;">
+            <span>mixi2のリプライを通知</span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label for="webhookUrl">Webhook URL</label>
+          <input type="text" id="webhookUrl" readonly onclick="this.select()">
+          <div class="info">このURLを外部サービスから呼び出して通知を送信できます。</div>
+        </div>
+        
+        <div class="form-group">
+          <label for="webhookToken">Webhook認証トークン</label>
+          <input type="text" id="webhookToken" readonly onclick="this.select()">
+          <div class="info">Webhook呼び出し時に必要な認証トークンです。</div>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="saveNotificationBtn">保存</button>
+        </div>
+        <div id="notificationMessage"></div>
+      </div>
     </div>
 
     <!-- 右カラム: パスワード変更 / アカウント削除 -->
@@ -1083,6 +1134,24 @@ export const HTML_SETTINGS = `
         }
         
         updateThreadsStatus(data);
+
+        // 通知設定の読み込み
+        document.getElementById('notifyReplyBluesky').checked = data.notifyReplyBluesky || false;
+        document.getElementById('notifyReplyMisskey').checked = data.notifyReplyMisskey || false;
+        document.getElementById('notifyReplyThreads').checked = data.notifyReplyThreads || false;
+        document.getElementById('notifyReplyMixi2').checked = data.notifyReplyMixi2 || false;
+        
+        // Webhook情報の表示
+        if (data.webhookToken) {
+          const webhookUrl = window.location.origin + '/api/webhook/reply';
+          document.getElementById('webhookUrl').value = webhookUrl;
+          document.getElementById('webhookToken').value = data.webhookToken;
+        }
+        
+        // 管理者の場合はmixi2通知設定を表示
+        if (data.isAdmin) {
+          document.getElementById('notifyReplyMixi2Container').style.display = 'block';
+        }
       } catch (err) {
         console.error('設定の読み込みに失敗しました', err);
       }
@@ -1328,6 +1397,40 @@ export const HTML_SETTINGS = `
         const data = await res.json();
         messageDiv.className = data.success ? 'success' : 'error';
         messageDiv.textContent = data.success ? '転記元を保存しました' : (data.error || '保存に失敗しました');
+      } catch (err) {
+        messageDiv.className = 'error';
+        messageDiv.textContent = 'エラーが発生しました';
+      }
+    });
+
+    // 通知設定の保存
+    document.getElementById('saveNotificationBtn').addEventListener('click', async () => {
+      const messageDiv = document.getElementById('notificationMessage');
+      
+      const settings = {
+        notifyReplyBluesky: document.getElementById('notifyReplyBluesky').checked,
+        notifyReplyMisskey: document.getElementById('notifyReplyMisskey').checked,
+        notifyReplyThreads: document.getElementById('notifyReplyThreads').checked,
+        notifyReplyMixi2: document.getElementById('notifyReplyMixi2').checked,
+      };
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(settings),
+        });
+
+        if (res.status === 401) { window.location.href = '/login'; return; }
+
+        const data = await res.json();
+        messageDiv.className = data.success ? 'success' : 'error';
+        messageDiv.textContent = data.success ? '通知設定を保存しました' : (data.error || '保存に失敗しました');
+        
+        if (data.success) {
+          await loadSettings();
+        }
       } catch (err) {
         messageDiv.className = 'error';
         messageDiv.textContent = 'エラーが発生しました';

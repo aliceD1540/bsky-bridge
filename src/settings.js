@@ -16,6 +16,10 @@ export async function saveSettings(env, userId, settings) {
     mixi2ClientSecret,
     mixi2AccessToken,
     mixi2TokenExpiresAt,
+    notifyReplyBluesky,
+    notifyReplyMisskey,
+    notifyReplyThreads,
+    notifyReplyMixi2,
   } = settings;
 
   const now = new Date().toISOString();
@@ -39,7 +43,12 @@ export async function saveSettings(env, userId, settings) {
       mixi2_client_secret_iv,
       mixi2_access_token_encrypted,
       mixi2_access_token_iv,
-      mixi2_token_expires_at
+      mixi2_token_expires_at,
+      notify_reply_bluesky,
+      notify_reply_misskey,
+      notify_reply_threads,
+      notify_reply_mixi2,
+      webhook_token
     FROM user_settings WHERE user_id = ?
   `)
     .bind(userId)
@@ -94,6 +103,18 @@ export async function saveSettings(env, userId, settings) {
   const newSourcePlatform = sourcePlatform || existing?.source_platform || 'bluesky';
   const newBlueskyHandle = blueskyHandle || existing?.bluesky_handle || null;
 
+  const newNotifyReplyBluesky = notifyReplyBluesky !== undefined ? (notifyReplyBluesky ? 1 : 0) : (existing?.notify_reply_bluesky ?? 0);
+  const newNotifyReplyMisskey = notifyReplyMisskey !== undefined ? (notifyReplyMisskey ? 1 : 0) : (existing?.notify_reply_misskey ?? 0);
+  const newNotifyReplyThreads = notifyReplyThreads !== undefined ? (notifyReplyThreads ? 1 : 0) : (existing?.notify_reply_threads ?? 0);
+  const newNotifyReplyMixi2 = notifyReplyMixi2 !== undefined ? (notifyReplyMixi2 ? 1 : 0) : (existing?.notify_reply_mixi2 ?? 0);
+
+  let webhookToken = existing?.webhook_token;
+  if (!webhookToken) {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    webhookToken = Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+
   if (existing) {
     await env.DB.prepare(`
       UPDATE user_settings SET
@@ -114,6 +135,11 @@ export async function saveSettings(env, userId, settings) {
         mixi2_access_token_encrypted = ?,
         mixi2_access_token_iv = ?,
         mixi2_token_expires_at = ?,
+        notify_reply_bluesky = ?,
+        notify_reply_misskey = ?,
+        notify_reply_threads = ?,
+        notify_reply_mixi2 = ?,
+        webhook_token = ?,
         updated_at = ?
       WHERE user_id = ?
     `)
@@ -135,6 +161,11 @@ export async function saveSettings(env, userId, settings) {
         mixi2AccessTokenEnc.cipherText,
         mixi2AccessTokenEnc.iv,
         newMixi2TokenExpiresAt,
+        newNotifyReplyBluesky,
+        newNotifyReplyMisskey,
+        newNotifyReplyThreads,
+        newNotifyReplyMixi2,
+        webhookToken,
         now,
         userId
       )
@@ -160,8 +191,13 @@ export async function saveSettings(env, userId, settings) {
         mixi2_access_token_encrypted,
         mixi2_access_token_iv,
         mixi2_token_expires_at,
+        notify_reply_bluesky,
+        notify_reply_misskey,
+        notify_reply_threads,
+        notify_reply_mixi2,
+        webhook_token,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         userId,
@@ -182,6 +218,11 @@ export async function saveSettings(env, userId, settings) {
         mixi2AccessTokenEnc.cipherText,
         mixi2AccessTokenEnc.iv,
         mixi2TokenExpiresAt ?? null,
+        newNotifyReplyBluesky,
+        newNotifyReplyMisskey,
+        newNotifyReplyThreads,
+        newNotifyReplyMixi2,
+        webhookToken,
         now
       )
       .run();
@@ -210,7 +251,12 @@ export async function getSettings(env, userId) {
       mixi2_client_secret_iv,
       mixi2_access_token_encrypted,
       mixi2_access_token_iv,
-      mixi2_token_expires_at
+      mixi2_token_expires_at,
+      notify_reply_bluesky,
+      notify_reply_misskey,
+      notify_reply_threads,
+      notify_reply_mixi2,
+      webhook_token
     FROM user_settings
     WHERE user_id = ?
   `)
@@ -250,6 +296,11 @@ export async function getSettings(env, userId) {
     mixi2ClientSecret,
     mixi2AccessToken,
     mixi2TokenExpiresAt: row.mixi2_token_expires_at,
+    notifyReplyBluesky: row.notify_reply_bluesky === 1,
+    notifyReplyMisskey: row.notify_reply_misskey === 1,
+    notifyReplyThreads: row.notify_reply_threads === 1,
+    notifyReplyMixi2: row.notify_reply_mixi2 === 1,
+    webhookToken: row.webhook_token,
   };
 }
 
@@ -275,7 +326,12 @@ export async function getPublicSettings(env, userId) {
       mixi2_client_id_encrypted,
       mixi2_client_secret_encrypted,
       mixi2_access_token_encrypted,
-      mixi2_token_expires_at
+      mixi2_token_expires_at,
+      notify_reply_bluesky,
+      notify_reply_misskey,
+      notify_reply_threads,
+      notify_reply_mixi2,
+      webhook_token
     FROM user_settings
     WHERE user_id = ?
   `)
@@ -302,6 +358,11 @@ export async function getPublicSettings(env, userId) {
       mixi2SourceUserId: null,
       mixi2TokenExpiresAt: null,
       todayPostCount: countStr ? parseInt(countStr, 10) : 0,
+      notifyReplyBluesky: false,
+      notifyReplyMisskey: false,
+      notifyReplyThreads: false,
+      notifyReplyMixi2: false,
+      webhookToken: null,
     };
   }
 
@@ -323,6 +384,11 @@ export async function getPublicSettings(env, userId) {
     mixi2SourceUserId: row.mixi2_source_user_id,
     mixi2TokenExpiresAt: row.mixi2_token_expires_at,
     todayPostCount: countStr ? parseInt(countStr, 10) : 0,
+    notifyReplyBluesky: row.notify_reply_bluesky === 1,
+    notifyReplyMisskey: row.notify_reply_misskey === 1,
+    notifyReplyThreads: row.notify_reply_threads === 1,
+    notifyReplyMixi2: row.notify_reply_mixi2 === 1,
+    webhookToken: row.webhook_token,
   };
 }
 
