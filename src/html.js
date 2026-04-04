@@ -1228,6 +1228,7 @@ export const HTML_SETTINGS = `
             body: JSON.stringify({
               mixi2ClientId: null,
               mixi2ClientSecret: null,
+              mixi2AccessToken: null,
             }),
           });
           if (res.ok) {
