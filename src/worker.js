@@ -275,7 +275,15 @@ async function handleRequest(request, env) {
         });
       }
 
-      if (settings.webhookToken !== webhookToken) {
+      const storedToken = settings.webhookToken || '';
+      const enc = new TextEncoder();
+      const a = enc.encode(storedToken);
+      const b = enc.encode(providedToken);
+      const len = Math.max(a.length, b.length);
+      let diff = a.length ^ b.length;
+      for (let i = 0; i < len; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+      const tokenValid = diff === 0 && storedToken.length > 0;
+      if (!tokenValid) {
         return new Response(JSON.stringify({ error: 'Invalid webhook token' }), {
           status: 403,
           headers: { 'Content-Type': 'application/json' },

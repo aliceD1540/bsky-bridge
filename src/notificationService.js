@@ -16,7 +16,6 @@ async function sendBlueskyNotification(userSettings, message) {
     await postToBluesky({
       handle: userSettings.blueskyHandle,
       appPassword: userSettings.blueskyAppPassword,
-    }, {
       text: mentionText,
       images: [],
     });
@@ -34,7 +33,8 @@ async function sendMisskeyNotification(userSettings, message) {
   }
 
   try {
-    await postToMisskey(userSettings.misskeyToken, {
+    await postToMisskey({
+      token: userSettings.misskeyToken,
       text: message,
       images: [],
     });
@@ -52,7 +52,8 @@ async function sendThreadsNotification(userSettings, message) {
   }
 
   try {
-    await postToThreads(userSettings.threadsToken, {
+    await postToThreads({
+      accessToken: userSettings.threadsToken,
       text: message,
       images: [],
     });
@@ -70,7 +71,8 @@ async function sendMixi2Notification(userSettings, message) {
   }
 
   try {
-    await postToMixi2(userSettings.mixi2AccessToken, {
+    await postToMixi2({
+      accessToken: userSettings.mixi2AccessToken,
       text: message,
       images: [],
     });
