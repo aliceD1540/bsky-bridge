@@ -309,9 +309,9 @@ async function handleRequest(request, env) {
 
     try {
       const body = await request.json();
-      // Misskey.io は reply イベントのみ処理
-      if (body.type !== 'reply') {
-        return new Response(JSON.stringify({ success: false, message: 'Not a reply event' }), {
+      // Misskey.io は reply（リプライ）と mention（メンション）を処理
+      if (body.type !== 'reply' && body.type !== 'mention') {
+        return new Response(JSON.stringify({ success: false, message: 'Not a reply or mention event' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
