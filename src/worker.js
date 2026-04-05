@@ -45,24 +45,17 @@ function constantTimeEquals(a, b) {
   return diff === 0;
 }
 
+// 署名対象: ボディ + タイムスタンプ（mixi2仕様）
 async function verifyMixi2Signature(publicKeyBase64, signatureBase64, timestamp, bodyBytes) {
   try {
     const keyBytes = Uint8Array.from(atob(publicKeyBase64), c => c.charCodeAt(0));
     const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'Ed25519' }, false, ['verify']);
     const sig = Uint8Array.from(atob(signatureBase64), c => c.charCodeAt(0));
-    const enc = new TextEncoder();
-
-    // パターン1: タイムスタンプ + ボディ（連結）
-    if (timestamp) {
-      const tsBytes = enc.encode(timestamp);
-      const combined = new Uint8Array(tsBytes.length + bodyBytes.length);
-      combined.set(tsBytes);
-      combined.set(bodyBytes, tsBytes.length);
-      if (await crypto.subtle.verify({ name: 'Ed25519' }, key, sig, combined)) return true;
-    }
-
-    // パターン2: ボディのみ
-    return await crypto.subtle.verify({ name: 'Ed25519' }, key, sig, bodyBytes);
+    const tsBytes = new TextEncoder().encode(timestamp);
+    const payload = new Uint8Array(bodyBytes.length + tsBytes.length);
+    payload.set(bodyBytes);
+    payload.set(tsBytes, bodyBytes.length);
+    return await crypto.subtle.verify({ name: 'Ed25519' }, key, sig, payload);
   } catch {
     return false;
   }
@@ -451,35 +444,32 @@ async function handleRequest(request, env) {
       if (publicKeyBase64) {
         const signatureHeader = request.headers.get('x-mixi2-application-event-signature') || '';
         const timestamp = request.headers.get('x-mixi2-application-event-timestamp') || '';
-        if (!signatureHeader) {
-          return new Response(JSON.stringify({ error: 'Missing signature' }), {
-            status: 401,
-            headers: { 'Content-Type': 'application/json' },
-          });
+
+        if (!signatureHeader || !timestamp) {
+          return new Response('', { status: 401 });
         }
+
+        // タイムスタンプが±300秒以内かチェック（リプレイアタック防止）
+        const tsSeconds = parseInt(timestamp, 10);
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        if (Math.abs(nowSeconds - tsSeconds) > 300) {
+          return new Response('', { status: 401 });
+        }
+
         const isValid = await verifyMixi2Signature(publicKeyBase64, signatureHeader, timestamp, bodyBytes);
         if (!isValid) {
-          return new Response(JSON.stringify({ error: 'Invalid signature' }), {
-            status: 401,
-            headers: { 'Content-Type': 'application/json' },
-          });
+          return new Response('', { status: 401 });
         }
       }
 
       if (!settings.notifyReplyMixi2) {
-        return new Response(JSON.stringify({ success: false, message: 'Notification for mixi2 is disabled' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
+        // 署名検証は通ったがイベント通知は不要 → 204で正常応答
+        return new Response('', { status: 204 });
       }
 
       // mixi2 は Protobuf 形式で送信してくるため JSON パースは行わない
-      // 送信元のポスト URL は Protobuf の解析が必要だが、現時点では空文字でも通知可能
-      const result = await sendReplyNotification(settings.sourcePlatform, settings, 'mixi2', '');
-      return new Response(JSON.stringify(result), {
-        status: result.success ? 200 : 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      await sendReplyNotification(settings.sourcePlatform, settings, 'mixi2', '');
+      return new Response('', { status: 204 });
     } catch (error) {
       console.error('mixi2 webhook error:', error);
       return new Response(JSON.stringify({ error: 'Internal server error' }), {
