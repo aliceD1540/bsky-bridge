@@ -45,11 +45,23 @@ function constantTimeEquals(a, b) {
   return diff === 0;
 }
 
-async function verifyMixi2Signature(publicKeyBase64, signatureBase64, bodyBytes) {
+async function verifyMixi2Signature(publicKeyBase64, signatureBase64, timestamp, bodyBytes) {
   try {
     const keyBytes = Uint8Array.from(atob(publicKeyBase64), c => c.charCodeAt(0));
     const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'Ed25519' }, false, ['verify']);
     const sig = Uint8Array.from(atob(signatureBase64), c => c.charCodeAt(0));
+    const enc = new TextEncoder();
+
+    // パターン1: タイムスタンプ + ボディ（連結）
+    if (timestamp) {
+      const tsBytes = enc.encode(timestamp);
+      const combined = new Uint8Array(tsBytes.length + bodyBytes.length);
+      combined.set(tsBytes);
+      combined.set(bodyBytes, tsBytes.length);
+      if (await crypto.subtle.verify({ name: 'Ed25519' }, key, sig, combined)) return true;
+    }
+
+    // パターン2: ボディのみ
     return await crypto.subtle.verify({ name: 'Ed25519' }, key, sig, bodyBytes);
   } catch {
     return false;
@@ -438,13 +450,14 @@ async function handleRequest(request, env) {
       const publicKeyBase64 = settings.mixi2WebhookPublicKey;
       if (publicKeyBase64) {
         const signatureHeader = request.headers.get('x-mixi2-application-event-signature') || '';
+        const timestamp = request.headers.get('x-mixi2-application-event-timestamp') || '';
         if (!signatureHeader) {
           return new Response(JSON.stringify({ error: 'Missing signature' }), {
             status: 401,
             headers: { 'Content-Type': 'application/json' },
           });
         }
-        const isValid = await verifyMixi2Signature(publicKeyBase64, signatureHeader, bodyBytes);
+        const isValid = await verifyMixi2Signature(publicKeyBase64, signatureHeader, timestamp, bodyBytes);
         if (!isValid) {
           return new Response(JSON.stringify({ error: 'Invalid signature' }), {
             status: 401,
