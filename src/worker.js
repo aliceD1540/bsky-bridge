@@ -61,6 +61,58 @@ async function verifyMixi2Signature(publicKeyBase64, signatureBase64, timestamp,
   }
 }
 
+// Protobuf バイナリから mixi2 の PostCreatedEvent の post_id を取り出す
+// Event(field4=PostCreatedEvent) > PostCreatedEvent(field2=Post) > Post(field1=post_id)
+function decodeMixi2PostId(bytes) {
+  function readVarint(buf, pos) {
+    let result = 0, shift = 0;
+    while (pos < buf.length) {
+      const b = buf[pos++];
+      result |= (b & 0x7F) << shift;
+      if (!(b & 0x80)) break;
+      shift += 7;
+    }
+    return { value: result, pos };
+  }
+  function readFields(buf) {
+    const fields = {};
+    let pos = 0;
+    while (pos < buf.length) {
+      const tag = readVarint(buf, pos);
+      pos = tag.pos;
+      const fieldNum = tag.value >>> 3;
+      const wireType = tag.value & 0x7;
+      if (wireType === 0) {
+        const v = readVarint(buf, pos);
+        pos = v.pos;
+        fields[fieldNum] = v.value;
+      } else if (wireType === 2) {
+        const len = readVarint(buf, pos);
+        pos = len.pos;
+        fields[fieldNum] = buf.slice(pos, pos + len.value);
+        pos += len.value;
+      } else {
+        break; // 未対応のwire typeが来たら終了
+      }
+    }
+    return fields;
+  }
+  try {
+    const event = readFields(bytes);
+    const postCreated = event[4]; // PostCreatedEvent
+    if (!postCreated) return null;
+    const postCreatedFields = readFields(postCreated);
+    const post = postCreatedFields[2]; // Post
+    if (!post) return null;
+    const postFields = readFields(post);
+    const postIdBytes = postFields[1]; // post_id (string)
+    if (!postIdBytes) return null;
+    return new TextDecoder().decode(postIdBytes);
+  } catch {
+    return null;
+  }
+}
+
 async function authenticateWebhook(env, userId, token) {  if (!userId || !token) return null;
   const settings = await getSettings(env, userId);
   if (!settings) return null;
@@ -467,8 +519,10 @@ async function handleRequest(request, env) {
         return new Response('', { status: 204 });
       }
 
-      // mixi2 は Protobuf 形式で送信してくるため JSON パースは行わない
-      await sendReplyNotification(settings.sourcePlatform, settings, 'mixi2', '');
+      // Protobuf から post_id を取り出して投稿URLを組み立てる
+      const postId = decodeMixi2PostId(bodyBytes);
+      const postUrl = postId ? `https://mixi.social/posts/${postId}` : '';
+      await sendReplyNotification(settings.sourcePlatform, settings, 'mixi2', postUrl);
       return new Response('', { status: 204 });
     } catch (error) {
       console.error('mixi2 webhook error:', error);
