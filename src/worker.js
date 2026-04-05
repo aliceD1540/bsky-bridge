@@ -2,7 +2,8 @@
 
 import { fetchBlueskyPostByUri, verifyBlueskyCredentials } from './blueskyClient.js';
 import { refreshThreadsToken, buildThreadsAuthUrl, exchangeCodeForToken, exchangeForLongLivedToken } from './threadsClient.js';
-import { isPosted, markPosted, getLastPostedAt, setLastPostedAt } from './kvStore.js';
+import { fetchMixi2AccessToken } from './mixi2Client.js';
+import { isPosted, markPosted, isPostedToPlatform, markPostedToPlatform, getLastPostedAt, setLastPostedAt } from './kvStore.js';
 import { formatPost } from './formatPost.js';
 import { register, login, logout, verifySession, changePassword, deleteAccount, verifyEmail, requestPasswordReset, resetPassword } from './auth.js';
 import { saveSettings, getSettings, getPublicSettings, getAllUserSettings } from './settings.js';
@@ -106,6 +107,36 @@ async function getEffectiveThreadsToken(env, user) {
   }
 
   return threadsToken;
+}
+
+// mixi2アクセストークンの有効性を確認し、期限切れの場合は再取得する
+async function getEffectiveMixi2Token(env, user) {
+  const { userId, mixi2AccessToken, mixi2TokenExpiresAt, mixi2ClientId, mixi2ClientSecret } = user;
+
+  if (!mixi2AccessToken) return null;
+  if (!mixi2ClientId || !mixi2ClientSecret) return mixi2AccessToken;
+
+  const now = new Date();
+  const expiresAt = mixi2TokenExpiresAt ? new Date(mixi2TokenExpiresAt) : null;
+
+  if (expiresAt && expiresAt <= now) {
+    // 期限切れ → clientId/clientSecret で再取得
+    try {
+      const { accessToken: newToken, expiresIn } = await fetchMixi2AccessToken(mixi2ClientId, mixi2ClientSecret);
+      const newExpiry = new Date(now.getTime() + expiresIn * 1000);
+      await saveSettings(env, userId, {
+        mixi2AccessToken: newToken,
+        mixi2TokenExpiresAt: newExpiry.toISOString(),
+      });
+      console.log(`User ${userId}: mixi2 token refreshed, expires:`, newExpiry.toISOString());
+      return newToken;
+    } catch (e) {
+      console.error(`User ${userId}: Failed to refresh mixi2 token:`, e);
+      return null;
+    }
+  }
+
+  return mixi2AccessToken;
 }
 
 async function handleRequest(request, env) {
@@ -315,6 +346,45 @@ async function handleRequest(request, env) {
             headers: { 'Content-Type': 'application/json' },
           });
         }
+      }
+    }
+
+    // mixi2設定は管理者のみ変更可能（なりすまし防止）
+    const mixi2SettingKeys = ['mixi2ClientId', 'mixi2ClientSecret', 'mixi2AccessToken'];
+    if (mixi2SettingKeys.some(k => k in settings)) {
+      // ユーザーが存在しない・ADMIN_EMAILが未設定・メールが一致しない場合はすべて403
+      const adminUserRow = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(session.userId).first();
+      if (!(env.ADMIN_EMAIL && adminUserRow?.email === env.ADMIN_EMAIL)) {
+        return new Response(JSON.stringify({ error: 'mixi2設定は管理者のみが変更できます。' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // mixi2 は転記元として使用不可（なりすましが容易なため）
+    if (settings.sourcePlatform === 'mixi2') {
+      return new Response(JSON.stringify({ error: 'mixi2は転記元として使用できません。' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // mixi2認証情報が入力された場合、アクセストークンを自動取得して保存
+    if (settings.mixi2ClientId && settings.mixi2ClientSecret) {
+      // コピー時に混入しやすい前後の空白を除去
+      settings.mixi2ClientId = settings.mixi2ClientId.trim();
+      settings.mixi2ClientSecret = settings.mixi2ClientSecret.trim();
+      try {
+        const { accessToken, expiresIn } = await fetchMixi2AccessToken(settings.mixi2ClientId, settings.mixi2ClientSecret);
+        settings.mixi2AccessToken = accessToken;
+        settings.mixi2TokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+      } catch (e) {
+        console.error(`User ${session.userId}: mixi2 token fetch failed:`, e.message);
+        return new Response(JSON.stringify({ error: `mixi2認証に失敗しました: ${e.message}` }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
       }
     }
 
@@ -646,12 +716,18 @@ async function handleQueue(batch, env) {
       });
     }
 
+    // mixi2 アクセストークンの有効性確認・再取得（必要な場合）
+    if (userSettings.mixi2AccessToken) {
+      userSettings.mixi2AccessToken = await getEffectiveMixi2Token(env, { userId, ...userSettings });
+    }
+
     const userWithId = { ...userSettings, userId };
 
     // 転記先プラットフォームを決定
     const destinations = getDestinationsForUser(userWithId);
     // 設定済みだが除外されたプラットフォームをデバッグログ出力
-    const allPlatforms = ['bluesky', 'misskey', 'threads'];
+    // mixi2は管理者専用のため、非管理者では未設定が当然なので除外
+    const allPlatforms = ['bluesky', 'misskey', 'threads', ...(isAdmin ? ['mixi2'] : [])];
     for (const p of allPlatforms) {
       if (p === sourcePlatform) continue;
       if (!DEST_ADAPTERS[p].isConfigured(userWithId)) {
@@ -697,20 +773,45 @@ async function handleQueue(batch, env) {
     const formatted = { ...formattedPost, sourcePlatform };
 
     try {
+      // 既に投稿済みの宛先を除外してリトライ時の重複投稿を防ぐ
+      const pendingDestinations = (
+        await Promise.all(
+          destinations.map(async (p) => ({
+            platform: p,
+            done: await isPostedToPlatform(env, p, kvKey),
+          }))
+        )
+      ).filter((r) => !r.done).map((r) => r.platform);
+
+      if (pendingDestinations.length === 0) {
+        await markPosted(env, kvKey, post.createdAt);
+        message.ack();
+        continue;
+      }
+
       const results = await Promise.allSettled(
-        destinations.map((platform) =>
+        pendingDestinations.map((platform) =>
           DEST_ADAPTERS[platform].post(env, userWithId, formatted)
+        )
+      );
+
+      // 成功した宛先は即座にKVへ記録
+      await Promise.all(
+        results.map((r, i) =>
+          r.status === 'fulfilled'
+            ? markPostedToPlatform(env, pendingDestinations[i], kvKey, post.createdAt)
+            : Promise.resolve()
         )
       );
 
       const failed = results.filter((r) => r.status === 'rejected');
       if (failed.length > 0) {
         failed.forEach((r) => console.error(`Post failed for user ${userId}:`, r.reason));
-        // 一部でも失敗した場合はリトライ（at-least-once）
+        // 失敗した宛先のみ次回リトライ（成功済みは markPostedToPlatform で除外される）
         message.retry();
       } else {
         await markPosted(env, kvKey, post.createdAt);
-        console.log(`User ${userId}: Posted to [${destinations.join(', ')}]:`, postId);
+        console.log(`User ${userId}: Posted to [${pendingDestinations.join(', ')}]:`, postId);
         message.ack();
       }
     } catch (e) {

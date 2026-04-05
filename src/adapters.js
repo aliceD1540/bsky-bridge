@@ -17,6 +17,13 @@ import {
   normalizeThreadsPost,
   postToThreads,
 } from './threadsClient.js';
+import {
+  fetchMixi2Identity,
+  fetchMixi2PostsSince,
+  fetchMixi2Post,
+  postToMixi2,
+  fetchMixi2AccessToken,
+} from './mixi2Client.js';
 import { getCachedSourceIdentity, setCachedSourceIdentity } from './kvStore.js';
 import { proxyImages } from './mediaProxy.js';
 
@@ -104,6 +111,28 @@ export const SOURCE_ADAPTERS = {
       return normalizeThreadsPost(raw);
     },
   },
+
+  mixi2: {
+    isConfigured(_userSettings) {
+      return false;
+    },
+
+    async getIdentity(_env, _userSettings) {
+      return null;
+    },
+
+    async pollNewPosts(_env, _userSettings, _since) {
+      return [];
+    },
+
+    async fetchAndNormalizePost(_env, userSettings, post) {
+      // Already normalized objects have uri field
+      if (typeof post === 'object' && post !== null && post.uri) return post;
+      // Fetch from gRPC API; fetchMixi2Post returns an already-normalized object.
+      // When accessToken is null/undefined, fetchMixi2Post returns null (handled by caller).
+      return fetchMixi2Post(typeof post === 'string' ? post : String(post), userSettings.mixi2AccessToken);
+    },
+  },
 };
 
 // デスティネーションアダプター定義
@@ -141,6 +170,20 @@ export const DEST_ADAPTERS = {
         appPassword: userSettings.blueskyAppPassword,
         text: formatted.text,
         images: formatted.images,
+      });
+    },
+  },
+
+  mixi2: {
+    isConfigured(userSettings) {
+      return !!(userSettings.mixi2AccessToken && userSettings.mixi2ClientId && userSettings.mixi2ClientSecret);
+    },
+
+    async post(_env, userSettings, formatted) {
+      return postToMixi2({
+        text: formatted.text,
+        images: formatted.images,
+        accessToken: userSettings.mixi2AccessToken,
       });
     },
   },
