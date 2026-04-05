@@ -45,8 +45,18 @@ function constantTimeEquals(a, b) {
   return diff === 0;
 }
 
-async function authenticateWebhook(env, userId, token) {
-  if (!userId || !token) return null;
+async function verifyMixi2Signature(publicKeyBase64, signatureBase64, bodyBytes) {
+  try {
+    const keyBytes = Uint8Array.from(atob(publicKeyBase64), c => c.charCodeAt(0));
+    const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'Ed25519' }, false, ['verify']);
+    const sig = Uint8Array.from(atob(signatureBase64), c => c.charCodeAt(0));
+    return await crypto.subtle.verify({ name: 'Ed25519' }, key, sig, bodyBytes);
+  } catch {
+    return false;
+  }
+}
+
+async function authenticateWebhook(env, userId, token) {  if (!userId || !token) return null;
   const settings = await getSettings(env, userId);
   if (!settings) return null;
   if (!constantTimeEquals(settings.webhookToken || '', token)) return null;
@@ -421,18 +431,38 @@ async function handleRequest(request, env) {
       });
     }
 
-    if (!settings.notifyReplyMixi2) {
-      return new Response(JSON.stringify({ success: false, message: 'Notification for mixi2 is disabled' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
     try {
-      const body = await request.json();
-      const postUrl = body.url || body.replyUrl || body.postUrl || body.permalink_url || '';
+      const bodyBytes = new Uint8Array(await request.arrayBuffer());
 
-      const result = await sendReplyNotification(settings.sourcePlatform, settings, 'mixi2', postUrl);
+      // Ed25519 署名検証（公開鍵が設定されている場合のみ）
+      const publicKeyBase64 = settings.mixi2WebhookPublicKey;
+      if (publicKeyBase64) {
+        const signatureHeader = request.headers.get('x-mixi2-application-event-signature') || '';
+        if (!signatureHeader) {
+          return new Response(JSON.stringify({ error: 'Missing signature' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        const isValid = await verifyMixi2Signature(publicKeyBase64, signatureHeader, bodyBytes);
+        if (!isValid) {
+          return new Response(JSON.stringify({ error: 'Invalid signature' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
+      if (!settings.notifyReplyMixi2) {
+        return new Response(JSON.stringify({ success: false, message: 'Notification for mixi2 is disabled' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      // mixi2 は Protobuf 形式で送信してくるため JSON パースは行わない
+      // 送信元のポスト URL は Protobuf の解析が必要だが、現時点では空文字でも通知可能
+      const result = await sendReplyNotification(settings.sourcePlatform, settings, 'mixi2', '');
       return new Response(JSON.stringify(result), {
         status: result.success ? 200 : 500,
         headers: { 'Content-Type': 'application/json' },
@@ -542,7 +572,7 @@ async function handleRequest(request, env) {
     }
 
     // mixi2設定は管理者のみ変更可能（なりすまし防止）
-    const mixi2SettingKeys = ['mixi2ClientId', 'mixi2ClientSecret', 'mixi2AccessToken'];
+    const mixi2SettingKeys = ['mixi2ClientId', 'mixi2ClientSecret', 'mixi2AccessToken', 'mixi2WebhookPublicKey'];
     if (mixi2SettingKeys.some(k => k in settings)) {
       // ユーザーが存在しない・ADMIN_EMAILが未設定・メールが一致しない場合はすべて403
       const adminUserRow = await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(session.userId).first();

@@ -991,6 +991,12 @@ export const HTML_SETTINGS = `
           </div>
           <div class="info" style="margin-bottom:12px;">mixi2 のWebhook設定で上記URLを登録してください。</div>
 
+          <div id="mixi2PublicKeySection" style="display:none;">
+            <label for="mixi2WebhookPublicKey">mixi2 署名検証用公開鍵（Base64）</label>
+            <textarea id="mixi2WebhookPublicKey" rows="3" placeholder="mixi2のWebhook設定で共有された署名検証用公開鍵を貼り付けてください（Base64形式）" style="font-family:monospace; font-size:0.85rem;"></textarea>
+            <div class="info" style="margin-bottom:12px;">mixi2 のWebhook設定を行うと署名検証用の公開鍵が発行されます。これを入力するとWebhookの署名を検証できます（管理者のみ）。</div>
+          </div>
+
           <label for="webhookToken">Webhook認証トークン（共通）</label>
           <input type="text" id="webhookToken" readonly onclick="this.select()">
           <div class="info">このトークンはすべてのプラットフォームで共通です。外部に漏らさないようにしてください。</div>
@@ -1148,9 +1154,13 @@ export const HTML_SETTINGS = `
           document.getElementById('webhookInfoSection').style.display = 'block';
         }
         
-        // 管理者の場合はmixi2通知設定を表示
+        // 管理者の場合はmixi2通知設定と公開鍵設定を表示
         if (data.isAdmin) {
           document.getElementById('notifyReplyMixi2Container').style.display = 'block';
+          document.getElementById('mixi2PublicKeySection').style.display = 'block';
+          if (data.mixi2WebhookPublicKey) {
+            document.getElementById('mixi2WebhookPublicKey').value = data.mixi2WebhookPublicKey;
+          }
         }
       } catch (err) {
         console.error('設定の読み込みに失敗しました', err);
@@ -1410,6 +1420,12 @@ export const HTML_SETTINGS = `
         notifyReplyThreads: document.getElementById('notifyReplyThreads').checked,
         notifyReplyMixi2: document.getElementById('notifyReplyMixi2').checked,
       };
+
+      // 管理者の場合はmixi2公開鍵も保存
+      const mixi2KeyEl = document.getElementById('mixi2WebhookPublicKey');
+      if (mixi2KeyEl && mixi2KeyEl.closest('[style*="display:none"]') === null) {
+        settings.mixi2WebhookPublicKey = mixi2KeyEl.value.trim() || null;
+      }
 
       try {
         const res = await fetch('/api/settings', {

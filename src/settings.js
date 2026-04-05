@@ -15,6 +15,7 @@ export async function saveSettings(env, userId, settings) {
     mixi2ClientSecret,
     mixi2AccessToken,
     mixi2TokenExpiresAt,
+    mixi2WebhookPublicKey,
     notifyReplyMisskey,
     notifyReplyThreads,
     notifyReplyMixi2,
@@ -41,6 +42,7 @@ export async function saveSettings(env, userId, settings) {
       mixi2_access_token_encrypted,
       mixi2_access_token_iv,
       mixi2_token_expires_at,
+      mixi2_webhook_public_key,
       notify_reply_misskey,
       notify_reply_threads,
       notify_reply_mixi2,
@@ -97,6 +99,8 @@ export async function saveSettings(env, userId, settings) {
   const newSourcePlatform = sourcePlatform || existing?.source_platform || 'bluesky';
   const newBlueskyHandle = blueskyHandle || existing?.bluesky_handle || null;
 
+  const newMixi2WebhookPublicKey = mixi2WebhookPublicKey !== undefined ? (mixi2WebhookPublicKey || null) : (existing?.mixi2_webhook_public_key ?? null);
+
   const newNotifyReplyMisskey = notifyReplyMisskey !== undefined ? (notifyReplyMisskey ? 1 : 0) : (existing?.notify_reply_misskey ?? 0);
   const newNotifyReplyThreads = notifyReplyThreads !== undefined ? (notifyReplyThreads ? 1 : 0) : (existing?.notify_reply_threads ?? 0);
   const newNotifyReplyMixi2 = notifyReplyMixi2 !== undefined ? (notifyReplyMixi2 ? 1 : 0) : (existing?.notify_reply_mixi2 ?? 0);
@@ -127,6 +131,7 @@ export async function saveSettings(env, userId, settings) {
         mixi2_access_token_encrypted = ?,
         mixi2_access_token_iv = ?,
         mixi2_token_expires_at = ?,
+        mixi2_webhook_public_key = ?,
         notify_reply_misskey = ?,
         notify_reply_threads = ?,
         notify_reply_mixi2 = ?,
@@ -151,6 +156,7 @@ export async function saveSettings(env, userId, settings) {
         mixi2AccessTokenEnc.cipherText,
         mixi2AccessTokenEnc.iv,
         newMixi2TokenExpiresAt,
+        newMixi2WebhookPublicKey,
         newNotifyReplyMisskey,
         newNotifyReplyThreads,
         newNotifyReplyMixi2,
@@ -179,12 +185,13 @@ export async function saveSettings(env, userId, settings) {
         mixi2_access_token_encrypted,
         mixi2_access_token_iv,
         mixi2_token_expires_at,
+        mixi2_webhook_public_key,
         notify_reply_misskey,
         notify_reply_threads,
         notify_reply_mixi2,
         webhook_token,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         userId,
@@ -204,6 +211,7 @@ export async function saveSettings(env, userId, settings) {
         mixi2AccessTokenEnc.cipherText,
         mixi2AccessTokenEnc.iv,
         mixi2TokenExpiresAt ?? null,
+        newMixi2WebhookPublicKey,
         newNotifyReplyMisskey,
         newNotifyReplyThreads,
         newNotifyReplyMixi2,
@@ -236,6 +244,7 @@ export async function getSettings(env, userId) {
       mixi2_access_token_encrypted,
       mixi2_access_token_iv,
       mixi2_token_expires_at,
+      mixi2_webhook_public_key,
       notify_reply_misskey,
       notify_reply_threads,
       notify_reply_mixi2,
@@ -278,6 +287,7 @@ export async function getSettings(env, userId) {
     mixi2ClientSecret,
     mixi2AccessToken,
     mixi2TokenExpiresAt: row.mixi2_token_expires_at,
+    mixi2WebhookPublicKey: row.mixi2_webhook_public_key || null,
     notifyReplyMisskey: row.notify_reply_misskey === 1,
     notifyReplyThreads: row.notify_reply_threads === 1,
     notifyReplyMixi2: row.notify_reply_mixi2 === 1,
@@ -307,6 +317,7 @@ export async function getPublicSettings(env, userId) {
       mixi2_client_secret_encrypted,
       mixi2_access_token_encrypted,
       mixi2_token_expires_at,
+      mixi2_webhook_public_key,
       notify_reply_misskey,
       notify_reply_threads,
       notify_reply_mixi2,
@@ -336,6 +347,7 @@ export async function getPublicSettings(env, userId) {
       threadsTokenExpiresAt: null,
       hasMixi2Config: false,
       mixi2TokenExpiresAt: null,
+      mixi2WebhookPublicKey: null,
       todayPostCount: countStr ? parseInt(countStr, 10) : 0,
       notifyReplyMisskey: false,
       notifyReplyThreads: false,
@@ -361,6 +373,7 @@ export async function getPublicSettings(env, userId) {
     threadsTokenExpiresAt: row.threads_token_expires_at,
     hasMixi2Config: !!(row.mixi2_client_id_encrypted && row.mixi2_client_secret_encrypted),
     mixi2TokenExpiresAt: row.mixi2_token_expires_at,
+    mixi2WebhookPublicKey: row.mixi2_webhook_public_key || null,
     todayPostCount: countStr ? parseInt(countStr, 10) : 0,
     notifyReplyMisskey: row.notify_reply_misskey === 1,
     notifyReplyThreads: row.notify_reply_threads === 1,
