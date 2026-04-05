@@ -15,7 +15,6 @@ export async function saveSettings(env, userId, settings) {
     mixi2ClientSecret,
     mixi2AccessToken,
     mixi2TokenExpiresAt,
-    notifyReplyBluesky,
     notifyReplyMisskey,
     notifyReplyThreads,
     notifyReplyMixi2,
@@ -42,7 +41,6 @@ export async function saveSettings(env, userId, settings) {
       mixi2_access_token_encrypted,
       mixi2_access_token_iv,
       mixi2_token_expires_at,
-      notify_reply_bluesky,
       notify_reply_misskey,
       notify_reply_threads,
       notify_reply_mixi2,
@@ -99,7 +97,6 @@ export async function saveSettings(env, userId, settings) {
   const newSourcePlatform = sourcePlatform || existing?.source_platform || 'bluesky';
   const newBlueskyHandle = blueskyHandle || existing?.bluesky_handle || null;
 
-  const newNotifyReplyBluesky = notifyReplyBluesky !== undefined ? (notifyReplyBluesky ? 1 : 0) : (existing?.notify_reply_bluesky ?? 0);
   const newNotifyReplyMisskey = notifyReplyMisskey !== undefined ? (notifyReplyMisskey ? 1 : 0) : (existing?.notify_reply_misskey ?? 0);
   const newNotifyReplyThreads = notifyReplyThreads !== undefined ? (notifyReplyThreads ? 1 : 0) : (existing?.notify_reply_threads ?? 0);
   const newNotifyReplyMixi2 = notifyReplyMixi2 !== undefined ? (notifyReplyMixi2 ? 1 : 0) : (existing?.notify_reply_mixi2 ?? 0);
@@ -130,7 +127,6 @@ export async function saveSettings(env, userId, settings) {
         mixi2_access_token_encrypted = ?,
         mixi2_access_token_iv = ?,
         mixi2_token_expires_at = ?,
-        notify_reply_bluesky = ?,
         notify_reply_misskey = ?,
         notify_reply_threads = ?,
         notify_reply_mixi2 = ?,
@@ -155,7 +151,6 @@ export async function saveSettings(env, userId, settings) {
         mixi2AccessTokenEnc.cipherText,
         mixi2AccessTokenEnc.iv,
         newMixi2TokenExpiresAt,
-        newNotifyReplyBluesky,
         newNotifyReplyMisskey,
         newNotifyReplyThreads,
         newNotifyReplyMixi2,
@@ -184,13 +179,12 @@ export async function saveSettings(env, userId, settings) {
         mixi2_access_token_encrypted,
         mixi2_access_token_iv,
         mixi2_token_expires_at,
-        notify_reply_bluesky,
         notify_reply_misskey,
         notify_reply_threads,
         notify_reply_mixi2,
         webhook_token,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         userId,
@@ -210,7 +204,6 @@ export async function saveSettings(env, userId, settings) {
         mixi2AccessTokenEnc.cipherText,
         mixi2AccessTokenEnc.iv,
         mixi2TokenExpiresAt ?? null,
-        newNotifyReplyBluesky,
         newNotifyReplyMisskey,
         newNotifyReplyThreads,
         newNotifyReplyMixi2,
@@ -243,7 +236,6 @@ export async function getSettings(env, userId) {
       mixi2_access_token_encrypted,
       mixi2_access_token_iv,
       mixi2_token_expires_at,
-      notify_reply_bluesky,
       notify_reply_misskey,
       notify_reply_threads,
       notify_reply_mixi2,
@@ -286,7 +278,6 @@ export async function getSettings(env, userId) {
     mixi2ClientSecret,
     mixi2AccessToken,
     mixi2TokenExpiresAt: row.mixi2_token_expires_at,
-    notifyReplyBluesky: row.notify_reply_bluesky === 1,
     notifyReplyMisskey: row.notify_reply_misskey === 1,
     notifyReplyThreads: row.notify_reply_threads === 1,
     notifyReplyMixi2: row.notify_reply_mixi2 === 1,
@@ -316,7 +307,6 @@ export async function getPublicSettings(env, userId) {
       mixi2_client_secret_encrypted,
       mixi2_access_token_encrypted,
       mixi2_token_expires_at,
-      notify_reply_bluesky,
       notify_reply_misskey,
       notify_reply_threads,
       notify_reply_mixi2,
@@ -334,6 +324,7 @@ export async function getPublicSettings(env, userId) {
     const countKey = `daily_post_count:${today}:${userId}`;
     const countStr = await env.KV.get(countKey);
     return {
+      userId,
       email: userRow?.email || '',
       emailVerified: userRow ? (userRow.email_verified === 1) : false,
       isAdmin,
@@ -346,7 +337,6 @@ export async function getPublicSettings(env, userId) {
       hasMixi2Config: false,
       mixi2TokenExpiresAt: null,
       todayPostCount: countStr ? parseInt(countStr, 10) : 0,
-      notifyReplyBluesky: false,
       notifyReplyMisskey: false,
       notifyReplyThreads: false,
       notifyReplyMixi2: false,
@@ -359,6 +349,7 @@ export async function getPublicSettings(env, userId) {
   const countStr = await env.KV.get(countKey);
 
   return {
+    userId,
     email: userRow?.email || '',
     emailVerified: userRow ? (userRow.email_verified === 1) : false,
     isAdmin,
@@ -371,7 +362,6 @@ export async function getPublicSettings(env, userId) {
     hasMixi2Config: !!(row.mixi2_client_id_encrypted && row.mixi2_client_secret_encrypted),
     mixi2TokenExpiresAt: row.mixi2_token_expires_at,
     todayPostCount: countStr ? parseInt(countStr, 10) : 0,
-    notifyReplyBluesky: row.notify_reply_bluesky === 1,
     notifyReplyMisskey: row.notify_reply_misskey === 1,
     notifyReplyThreads: row.notify_reply_threads === 1,
     notifyReplyMixi2: row.notify_reply_mixi2 === 1,

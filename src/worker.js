@@ -34,6 +34,25 @@ function generateOAuthState() {
   return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+function constantTimeEquals(a, b) {
+  if (!a || !b) return false;
+  const enc = new TextEncoder();
+  const aBytes = enc.encode(a);
+  const bBytes = enc.encode(b);
+  const len = Math.max(aBytes.length, bBytes.length);
+  let diff = aBytes.length ^ bBytes.length;
+  for (let i = 0; i < len; i++) diff |= (aBytes[i] ?? 0) ^ (bBytes[i] ?? 0);
+  return diff === 0;
+}
+
+async function authenticateWebhook(env, userId, token) {
+  if (!userId || !token) return null;
+  const settings = await getSettings(env, userId);
+  if (!settings) return null;
+  if (!constantTimeEquals(settings.webhookToken || '', token)) return null;
+  return settings;
+}
+
 // IPごとの試行回数をKVで管理（5回失敗で15分ロックアウト）
 async function checkRateLimit(env, key) {
   const kvKey = `rate_limit:${key}`;
@@ -255,65 +274,162 @@ async function handleRequest(request, env) {
     });
   }
 
-  // Webhook: リプライ通知
-  if (path === '/api/webhook/reply' && request.method === 'POST') {
+  // Webhook: Misskey.io リプライ通知
+  // Misskey.io のWebhook設定で: URL = /api/webhook/misskey/{userId}?token={webhookToken}
+  // シークレット = webhookToken（X-Misskey-Hook-Secret ヘッダーで送信される）
+  const misskeyWebhookMatch = path.match(/^\/api\/webhook\/misskey\/([^/]+)$/);
+  if (misskeyWebhookMatch && request.method === 'POST') {
+    const userId = misskeyWebhookMatch[1];
+    const token = url.searchParams.get('token') || '';
+    // X-Misskey-Hook-Secret ヘッダーがある場合はそちらも優先して検証
+    const secretHeader = request.headers.get('X-Misskey-Hook-Secret') || token;
+    const settings = await authenticateWebhook(env, userId, secretHeader !== token ? secretHeader : token);
+    if (!settings) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!settings.notifyReplyMisskey) {
+      return new Response(JSON.stringify({ success: false, message: 'Notification for Misskey.io is disabled' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     try {
-      const { userId, webhookToken, platform, postUrl } = await request.json();
-      
-      if (!userId || !webhookToken || !platform) {
-        return new Response(JSON.stringify({ error: 'Missing required parameters' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      const settings = await getSettings(env, userId);
-      if (!settings) {
-        return new Response(JSON.stringify({ error: 'User not found' }), {
-          status: 404,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      const storedToken = settings.webhookToken || '';
-      const enc = new TextEncoder();
-      const a = enc.encode(storedToken);
-      const b = enc.encode(providedToken);
-      const len = Math.max(a.length, b.length);
-      let diff = a.length ^ b.length;
-      for (let i = 0; i < len; i++) diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
-      const tokenValid = diff === 0 && storedToken.length > 0;
-      if (!tokenValid) {
-        return new Response(JSON.stringify({ error: 'Invalid webhook token' }), {
-          status: 403,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      const notifyKey = `notifyReply${platform.charAt(0).toUpperCase()}${platform.slice(1)}`;
-      if (!settings[notifyKey]) {
-        return new Response(JSON.stringify({ 
-          success: false, 
-          message: `Notification for ${platform} is disabled` 
-        }), {
+      const body = await request.json();
+      // Misskey.io は reply イベントのみ処理
+      if (body.type !== 'reply') {
+        return new Response(JSON.stringify({ success: false, message: 'Not a reply event' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
       }
 
-      const result = await sendReplyNotification(
-        settings.sourcePlatform,
-        settings,
-        platform,
-        postUrl || ''
-      );
+      const note = body.body?.note;
+      const postUrl = note?.url || note?.uri || '';
 
+      const result = await sendReplyNotification(settings.sourcePlatform, settings, 'misskey', postUrl);
       return new Response(JSON.stringify(result), {
         status: result.success ? 200 : 500,
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (error) {
-      console.error('Webhook error:', error);
+      console.error('Misskey webhook error:', error);
+      return new Response(JSON.stringify({ error: 'Internal server error' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  // Webhook: Threads リプライ通知
+  // Meta Developer Console のWebhook設定で:
+  //   コールバックURL = /api/webhook/threads/{userId}?token={webhookToken}
+  //   確認トークン   = {webhookToken}
+  const threadsWebhookMatch = path.match(/^\/api\/webhook\/threads\/([^/]+)$/);
+  if (threadsWebhookMatch && request.method === 'GET') {
+    // Threadsのwebhook検証リクエスト
+    const userId = threadsWebhookMatch[1];
+    const mode = url.searchParams.get('hub.mode');
+    const challenge = url.searchParams.get('hub.challenge');
+    const verifyToken = url.searchParams.get('hub.verify_token') || '';
+
+    if (mode !== 'subscribe' || !challenge) {
+      return new Response('Bad Request', { status: 400 });
+    }
+
+    const settings = await getSettings(env, userId);
+    if (!settings || !constantTimeEquals(settings.webhookToken || '', verifyToken)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+
+    return new Response(challenge, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+  }
+
+  if (threadsWebhookMatch && request.method === 'POST') {
+    const userId = threadsWebhookMatch[1];
+    const token = url.searchParams.get('token') || '';
+    const settings = await authenticateWebhook(env, userId, token);
+    if (!settings) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!settings.notifyReplyThreads) {
+      return new Response(JSON.stringify({ success: false, message: 'Notification for Threads is disabled' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    try {
+      const body = await request.json();
+      // Threads webhook body: { object: 'threads', entry: [{ changes: [{ field: 'replies', value: { permalink_url: '...' } }] }] }
+      let postUrl = '';
+      for (const entry of (body.entry || [])) {
+        for (const change of (entry.changes || [])) {
+          if (change.field === 'replies' && change.value?.permalink_url) {
+            postUrl = change.value.permalink_url;
+            break;
+          }
+        }
+        if (postUrl) break;
+      }
+
+      const result = await sendReplyNotification(settings.sourcePlatform, settings, 'threads', postUrl);
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      console.error('Threads webhook error:', error);
+      return new Response(JSON.stringify({ error: 'Internal server error' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  // Webhook: mixi2 リプライ通知
+  // mixi2 のWebhook設定で: URL = /api/webhook/mixi2/{userId}?token={webhookToken}
+  const mixi2WebhookMatch = path.match(/^\/api\/webhook\/mixi2\/([^/]+)$/);
+  if (mixi2WebhookMatch && request.method === 'POST') {
+    const userId = mixi2WebhookMatch[1];
+    const token = url.searchParams.get('token') || '';
+    const settings = await authenticateWebhook(env, userId, token);
+    if (!settings) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!settings.notifyReplyMixi2) {
+      return new Response(JSON.stringify({ success: false, message: 'Notification for mixi2 is disabled' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    try {
+      const body = await request.json();
+      const postUrl = body.url || body.replyUrl || body.postUrl || body.permalink_url || '';
+
+      const result = await sendReplyNotification(settings.sourcePlatform, settings, 'mixi2', postUrl);
+      return new Response(JSON.stringify(result), {
+        status: result.success ? 200 : 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      console.error('mixi2 webhook error:', error);
       return new Response(JSON.stringify({ error: 'Internal server error' }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },

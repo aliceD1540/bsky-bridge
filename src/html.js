@@ -947,14 +947,7 @@ export const HTML_SETTINGS = `
 
       <div class="card">
         <h2>リプライ通知設定</h2>
-        <p class="info">転記先でリプライがあった場合、転記元アカウントに通知を送信できます。各プラットフォームごとに通知のON/OFFを設定してください。</p>
-        
-        <div class="form-group">
-          <label class="radio-label" style="cursor:auto;">
-            <input type="checkbox" id="notifyReplyBluesky" style="width:auto;">
-            <span>Blueskyのリプライを通知</span>
-          </label>
-        </div>
+        <p class="info">転記先でリプライがあった場合、転記元アカウントに通知を送信できます。各プラットフォームのWebhook設定に以下のURLを登録してください。</p>
         
         <div class="form-group">
           <label class="radio-label" style="cursor:auto;">
@@ -977,16 +970,30 @@ export const HTML_SETTINGS = `
           </label>
         </div>
 
-        <div class="form-group">
-          <label for="webhookUrl">Webhook URL</label>
-          <input type="text" id="webhookUrl" readonly onclick="this.select()">
-          <div class="info">このURLを外部サービスから呼び出して通知を送信できます。</div>
-        </div>
-        
-        <div class="form-group">
-          <label for="webhookToken">Webhook認証トークン</label>
+        <div class="form-group" id="webhookInfoSection" style="display:none;">
+          <h3 style="font-size:1rem; margin-bottom:8px;">Webhook設定情報</h3>
+
+          <label>Misskey.io Webhook URL</label>
+          <div style="display:flex; gap:8px; margin-bottom:4px;">
+            <input type="text" id="webhookUrlMisskey" readonly onclick="this.select()" style="flex:1;">
+          </div>
+          <div class="info" style="margin-bottom:12px;">Misskey.io のWebhook設定で上記URLを登録し、シークレットに下記のトークンを設定してください。</div>
+
+          <label>Threads Webhook URL</label>
+          <div style="display:flex; gap:8px; margin-bottom:4px;">
+            <input type="text" id="webhookUrlThreads" readonly onclick="this.select()" style="flex:1;">
+          </div>
+          <div class="info" style="margin-bottom:12px;">Meta Developer Console のWebhook設定でコールバックURLに上記URLを、確認トークンに下記のトークンを設定してください。</div>
+
+          <label>mixi2 Webhook URL</label>
+          <div style="display:flex; gap:8px; margin-bottom:4px;">
+            <input type="text" id="webhookUrlMixi2" readonly onclick="this.select()" style="flex:1;">
+          </div>
+          <div class="info" style="margin-bottom:12px;">mixi2 のWebhook設定で上記URLを登録してください。</div>
+
+          <label for="webhookToken">Webhook認証トークン（共通）</label>
           <input type="text" id="webhookToken" readonly onclick="this.select()">
-          <div class="info">Webhook呼び出し時に必要な認証トークンです。</div>
+          <div class="info">このトークンはすべてのプラットフォームで共通です。外部に漏らさないようにしてください。</div>
         </div>
 
         <div class="actions">
@@ -1127,16 +1134,18 @@ export const HTML_SETTINGS = `
         updateThreadsStatus(data);
 
         // 通知設定の読み込み
-        document.getElementById('notifyReplyBluesky').checked = data.notifyReplyBluesky || false;
         document.getElementById('notifyReplyMisskey').checked = data.notifyReplyMisskey || false;
         document.getElementById('notifyReplyThreads').checked = data.notifyReplyThreads || false;
         document.getElementById('notifyReplyMixi2').checked = data.notifyReplyMixi2 || false;
         
-        // Webhook情報の表示
-        if (data.webhookToken) {
-          const webhookUrl = window.location.origin + '/api/webhook/reply';
-          document.getElementById('webhookUrl').value = webhookUrl;
+        // Webhook情報の表示（userId と webhookToken が揃っている場合）
+        if (data.userId && data.webhookToken) {
+          const origin = window.location.origin;
+          document.getElementById('webhookUrlMisskey').value = \`\${origin}/api/webhook/misskey/\${data.userId}?token=\${data.webhookToken}\`;
+          document.getElementById('webhookUrlThreads').value = \`\${origin}/api/webhook/threads/\${data.userId}?token=\${data.webhookToken}\`;
+          document.getElementById('webhookUrlMixi2').value = \`\${origin}/api/webhook/mixi2/\${data.userId}?token=\${data.webhookToken}\`;
           document.getElementById('webhookToken').value = data.webhookToken;
+          document.getElementById('webhookInfoSection').style.display = 'block';
         }
         
         // 管理者の場合はmixi2通知設定を表示
@@ -1397,7 +1406,6 @@ export const HTML_SETTINGS = `
       const messageDiv = document.getElementById('notificationMessage');
       
       const settings = {
-        notifyReplyBluesky: document.getElementById('notifyReplyBluesky').checked,
         notifyReplyMisskey: document.getElementById('notifyReplyMisskey').checked,
         notifyReplyThreads: document.getElementById('notifyReplyThreads').checked,
         notifyReplyMixi2: document.getElementById('notifyReplyMixi2').checked,
