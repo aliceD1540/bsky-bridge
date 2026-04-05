@@ -977,7 +977,7 @@ export const HTML_SETTINGS = `
           <div style="display:flex; gap:8px; margin-bottom:4px;">
             <input type="text" id="webhookUrlMisskey" readonly onclick="this.select()" style="flex:1;">
           </div>
-          <div class="info" style="margin-bottom:12px;">Misskey.io のWebhook設定で上記URLを登録し、シークレットに下記のトークンを設定してください。</div>
+          <div class="info" style="margin-bottom:12px;">Misskey.io のWebhook設定で上記URLを登録してください。シークレットは任意ですが、設定する場合は下記のトークンを使用してください。</div>
 
           <label>Threads Webhook URL</label>
           <div style="display:flex; gap:8px; margin-bottom:4px;">

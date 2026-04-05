@@ -275,16 +275,25 @@ async function handleRequest(request, env) {
   }
 
   // Webhook: Misskey.io リプライ通知
-  // Misskey.io のWebhook設定で: URL = /api/webhook/misskey/{userId}?token={webhookToken}
-  // シークレット = webhookToken（X-Misskey-Hook-Secret ヘッダーで送信される）
+  // Misskey.io のWebhook設定で:
+  //   URL      = /api/webhook/misskey/{userId}?token={webhookToken}
+  //   シークレット = 任意（設定する場合は webhookToken と同じ値を使用）
   const misskeyWebhookMatch = path.match(/^\/api\/webhook\/misskey\/([^/]+)$/);
   if (misskeyWebhookMatch && request.method === 'POST') {
     const userId = misskeyWebhookMatch[1];
-    const token = url.searchParams.get('token') || '';
-    // X-Misskey-Hook-Secret ヘッダーがある場合はそちらも優先して検証
-    const secretHeader = request.headers.get('X-Misskey-Hook-Secret') || token;
-    const settings = await authenticateWebhook(env, userId, secretHeader !== token ? secretHeader : token);
+    const urlToken = url.searchParams.get('token') || '';
+
+    const settings = await authenticateWebhook(env, userId, urlToken);
     if (!settings) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // X-Misskey-Hook-Secret が送られてきた場合は追加検証
+    const secretHeader = request.headers.get('X-Misskey-Hook-Secret');
+    if (secretHeader && !constantTimeEquals(settings.webhookToken || '', secretHeader)) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
