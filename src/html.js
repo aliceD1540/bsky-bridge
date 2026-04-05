@@ -871,7 +871,7 @@ export const HTML_SETTINGS = `
             <label class="radio-label"><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"><span>Bluesky</span><span class="text-danger" id="srcBlueskyWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
             <label class="radio-label"><input type="radio" name="sourcePlatform" value="misskey" id="srcMisskey"><span>Misskey.io</span><span class="text-danger" id="srcMisskeyWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
             <label class="radio-label"><input type="radio" name="sourcePlatform" value="threads" id="srcThreads"><span>Threads</span><span class="text-danger" id="srcThreadsWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
-            <label class="radio-label" id="srcMixi2Label" style="display:none;"><input type="radio" name="sourcePlatform" value="mixi2" id="srcMixi2"><span>mixi2（管理者のみ）</span><span class="text-danger" id="srcMixi2Warning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
+
           </div>
           <div class="actions">
             <button type="submit">保存</button>
@@ -924,11 +924,6 @@ export const HTML_SETTINGS = `
 
         <div id="mixi2Section" style="display:none;">
           <h3>mixi2（管理者のみ） <span class="text-danger" id="mixi2StatusWarning" style="display:none;">認証情報未設定</span></h3>
-          <div class="form-group">
-            <label for="mixi2SourceUserId">転記元アカウントID</label>
-            <input type="text" id="mixi2SourceUserId" placeholder="転記元のユーザーID">
-            <div class="info">転記元となるmixi2アカウントのユーザーIDを入力してください。</div>
-          </div>
           <div class="form-group">
             <label for="mixi2ClientId">Botアカウント クライアントID</label>
             <input type="password" id="mixi2ClientId" placeholder="変更しない場合は空欄のまま">
@@ -1085,7 +1080,6 @@ export const HTML_SETTINGS = `
         if (data.isAdmin) {
           document.getElementById('announcementEditorCard').style.display = 'block';
           document.getElementById('mixi2Section').style.display = 'block';
-          document.getElementById('srcMixi2Label').style.display = 'flex';
           loadAnnouncement();
         }
         
@@ -1101,9 +1095,6 @@ export const HTML_SETTINGS = `
         // 管理者の場合はmixi2の認証状態も更新
         if (data.isAdmin) {
           updateAuthStatus('mixi2', data.hasMixi2Config);
-          if (data.mixi2SourceUserId) {
-            document.getElementById('mixi2SourceUserId').value = data.mixi2SourceUserId;
-          }
           if (data.hasMixi2Config) {
             document.getElementById('mixi2ClientId').placeholder = '設定済み（変更する場合のみ入力）';
             document.getElementById('mixi2ClientSecret').placeholder = '設定済み（変更する場合のみ入力）';
@@ -1304,14 +1295,12 @@ export const HTML_SETTINGS = `
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
             body: JSON.stringify({
-              mixi2SourceUserId: null,
               mixi2ClientId: null,
               mixi2ClientSecret: null,
               mixi2AccessToken: null,
             }),
           });
           if (res.ok) {
-            document.getElementById('mixi2SourceUserId').value = '';
             document.getElementById('mixi2ClientId').value = '';
             document.getElementById('mixi2ClientSecret').value = '';
             document.getElementById('mixi2ClientId').placeholder = '変更しない場合は空欄のまま';
@@ -1445,7 +1434,6 @@ export const HTML_SETTINGS = `
         blueskyHandle: document.getElementById('blueskyHandle').value,
         blueskyAppPassword: document.getElementById('blueskyAppPassword').value,
         misskeyToken: document.getElementById('misskeyToken').value,
-        mixi2SourceUserId: document.getElementById('mixi2SourceUserId').value,
         mixi2ClientId: document.getElementById('mixi2ClientId').value,
         mixi2ClientSecret: document.getElementById('mixi2ClientSecret').value,
       };

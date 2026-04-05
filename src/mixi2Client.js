@@ -152,8 +152,8 @@ async function grpcCall(method, accessToken, reqBytes) {
 // OAuth 2.0でアクセストークンを取得
 // Basic Auth（AuthStyleInHeader）と body params（AuthStyleInParams）の両方を試みる
 export async function fetchMixi2AccessToken(clientId, clientSecret) {
-  // RFC 6749 §2.3.1: Basic Auth 使用時は client_id / client_secret を URL エンコードしてから base64 化
-  const credentials = btoa(`${encodeURIComponent(clientId)}:${encodeURIComponent(clientSecret)}`);
+  // mixi2 は URL エンコードなしの生の値を Basic Auth で期待する（RFC 6749 §2.3.1 の encodeURIComponent は不要）
+  const credentials = btoa(`${clientId}:${clientSecret}`);
 
   // まず Basic Auth 方式を試みる
   let res = await fetch(MIXI2_AUTH_URL, {
@@ -274,13 +274,20 @@ async function uploadImage(imageUrl, accessToken) {
   const mediaId = pbStr(initiateFields.get(1)?.[0]);
   const uploadUrl = pbStr(initiateFields.get(2)?.[0]);
 
-  // 3. presigned URL に画像データを PUT
+  // 3. upload_url に画像データを POST（mixi2独自エンドポイント、Bearer認証が必要）
+  const arrayBuffer = await blob.arrayBuffer();
   const uploadRes = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': contentType },
-    body: blob,
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': contentType,
+    },
+    body: arrayBuffer,
   });
-  if (!uploadRes.ok) throw new Error(`mixi2 media PUT failed: ${uploadRes.status}`);
+  if (!uploadRes.ok) {
+    const errBody = await uploadRes.text().catch(() => '');
+    throw new Error(`mixi2 media PUT failed: ${uploadRes.status}${errBody ? ` - ${errBody}` : ''}`);
+  }
 
   // 4. GetPostMediaStatus (gRPC) で処理完了を待機
   //    GetPostMediaStatusResponse.status: STATUS_COMPLETED=3, STATUS_FAILED=4
