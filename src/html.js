@@ -1091,11 +1091,22 @@ export const HTML_SETTINGS = `
           warningDiv.style.display = 'none';
         }
         
-        // 管理者の場合はお知らせ編集カードとmixi2設定を表示
+        // 管理者の場合はお知らせ編集カード・mixi2設定・mixi2通知・公開鍵・Threads Webhook URLを表示
         if (data.isAdmin) {
           document.getElementById('announcementEditorCard').style.display = 'block';
           document.getElementById('mixi2Section').style.display = 'block';
           loadAnnouncement();
+          updateAuthStatus('mixi2', data.hasMixi2Config);
+          if (data.hasMixi2Config) {
+            document.getElementById('mixi2ClientId').placeholder = '設定済み（変更する場合のみ入力）';
+            document.getElementById('mixi2ClientSecret').placeholder = '設定済み（変更する場合のみ入力）';
+          }
+          document.getElementById('notifyReplyMixi2Container').style.display = 'block';
+          document.getElementById('mixi2PublicKeySection').style.display = 'block';
+          document.getElementById('threadsWebhookSection').style.display = 'block';
+          if (data.mixi2WebhookPublicKey) {
+            document.getElementById('mixi2WebhookPublicKey').value = data.mixi2WebhookPublicKey;
+          }
         }
         
         if (data.blueskyHandle) {
@@ -1106,15 +1117,6 @@ export const HTML_SETTINGS = `
         updateAuthStatus('bluesky', data.hasBlueskyAppPassword);
         updateAuthStatus('misskey', data.hasMisskeyToken);
         updateAuthStatus('threads', data.hasThreadsToken);
-        
-        // 管理者の場合はmixi2の認証状態も更新
-        if (data.isAdmin) {
-          updateAuthStatus('mixi2', data.hasMixi2Config);
-          if (data.hasMixi2Config) {
-            document.getElementById('mixi2ClientId').placeholder = '設定済み（変更する場合のみ入力）';
-            document.getElementById('mixi2ClientSecret').placeholder = '設定済み（変更する場合のみ入力）';
-          }
-        }
         
         // アプリパスワード設定状態を反映
         if (data.hasBlueskyAppPassword) {
@@ -1154,16 +1156,6 @@ export const HTML_SETTINGS = `
           document.getElementById('webhookUrlMixi2').value = \`\${origin}/api/webhook/mixi2/\${data.userId}?token=\${data.webhookToken}\`;
           document.getElementById('webhookToken').value = data.webhookToken;
           document.getElementById('webhookInfoSection').style.display = 'block';
-        }
-        
-        // 管理者の場合はmixi2通知設定と公開鍵設定とThreads Webhook URLを表示
-        if (data.isAdmin) {
-          document.getElementById('notifyReplyMixi2Container').style.display = 'block';
-          document.getElementById('mixi2PublicKeySection').style.display = 'block';
-          document.getElementById('threadsWebhookSection').style.display = 'block';
-          if (data.mixi2WebhookPublicKey) {
-            document.getElementById('mixi2WebhookPublicKey').value = data.mixi2WebhookPublicKey;
-          }
         }
       } catch (err) {
         console.error('設定の読み込みに失敗しました', err);
