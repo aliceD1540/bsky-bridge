@@ -458,6 +458,7 @@ async function handleRequest(request, env) {
   if (path === '/api/webhook/threads' && request.method === 'POST') {
     try {
       const body = await request.json();
+      console.log('Threads webhook body:', JSON.stringify(body));
       // entry ごとに Threads ユーザーID を取得してルーティング
       const results = [];
       for (const entry of (body.entry || [])) {
