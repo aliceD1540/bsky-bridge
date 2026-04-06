@@ -462,9 +462,18 @@ async function handleRequest(request, env) {
       const rawBody = await request.text();
       const body = JSON.parse(rawBody);
       const results = [];
-      // Threads webhook body: { values: [{ field: 'replies', value: { permalink, root_post: { owner_id } } }] }
+      // Threads webhook body: { values: [{ field: 'replies', value: { id, permalink, root_post: { owner_id } } }] }
       for (const item of (body.values || [])) {
         if (item.field !== 'replies' || !item.value) continue;
+
+        // Meta は同一イベントを複数IPから冗長送信するため KV で重複排除（TTL: 5分）
+        const replyId = String(item.value.id || '');
+        if (replyId) {
+          const dedupKey = `threads_webhook_dedup:${replyId}`;
+          const seen = await env.KV.get(dedupKey);
+          if (seen) continue;
+          await env.KV.put(dedupKey, '1', { expirationTtl: 300 });
+        }
 
         // owner_id を rawBody から正規表現で文字列として抽出（精度ロス防止）
         const ownerIdMatch = rawBody.match(/"owner_id"\s*:\s*"?(\d+)"?/);
