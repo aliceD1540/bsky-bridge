@@ -458,12 +458,14 @@ async function handleRequest(request, env) {
   if (path === '/api/webhook/threads' && request.method === 'POST') {
     try {
       const body = await request.json();
-      console.log('Threads webhook body:', JSON.stringify(body));
-      // entry ごとに Threads ユーザーID を取得してルーティング
       const results = [];
-      for (const entry of (body.entry || [])) {
-        const threadsUserId = String(entry.id || '');
-        if (!threadsUserId) continue;
+      // Threads webhook body: { values: [{ field: 'replies', value: { permalink, root_post: { owner_id } } }] }
+      for (const item of (body.values || [])) {
+        if (item.field !== 'replies' || !item.value) continue;
+
+        const threadsUserId = item.value.root_post?.owner_id;
+        const postUrl = item.value.permalink;
+        if (!threadsUserId || !postUrl) continue;
 
         const userId = await findUserByThreadsUserId(env, threadsUserId);
         if (!userId) {
@@ -474,12 +476,8 @@ async function handleRequest(request, env) {
         const settings = await getSettings(env, userId);
         if (!settings || !settings.notifyReplyThreads) continue;
 
-        for (const change of (entry.changes || [])) {
-          if (change.field === 'replies' && change.value?.permalink_url) {
-            const result = await sendReplyNotification(env, settings.sourcePlatform, settings, 'threads', change.value.permalink_url);
-            results.push({ userId, ...result });
-          }
-        }
+        const result = await sendReplyNotification(env, settings.sourcePlatform, settings, 'threads', postUrl);
+        results.push({ userId, ...result });
       }
 
       return new Response(JSON.stringify({ success: true, results }), {
