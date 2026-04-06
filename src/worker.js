@@ -4,7 +4,7 @@ import { fetchBlueskyPostByUri, verifyBlueskyCredentials } from './blueskyClient
 import { refreshThreadsToken, buildThreadsAuthUrl, exchangeCodeForToken, exchangeForLongLivedToken } from './threadsClient.js';
 import { fetchMixi2AccessToken } from './mixi2Client.js';
 import { isPosted, markPosted, isPostedToPlatform, markPostedToPlatform, getLastPostedAt, setLastPostedAt } from './kvStore.js';
-import { formatPost } from './formatPost.js';
+import { formatPost, truncateForDest } from './formatPost.js';
 import { register, login, logout, verifySession, changePassword, deleteAccount, verifyEmail, requestPasswordReset, resetPassword } from './auth.js';
 import { saveSettings, getSettings, getPublicSettings, getAllUserSettings } from './settings.js';
 import { SOURCE_ADAPTERS, DEST_ADAPTERS, getDestinationsForUser } from './adapters.js';
@@ -61,8 +61,9 @@ async function verifyMixi2Signature(publicKeyBase64, signatureBase64, timestamp,
   }
 }
 
-// Protobuf バイナリから mixi2 の PostCreatedEvent の post_id を取り出す
-// Event(field4=PostCreatedEvent) > PostCreatedEvent(field2=Post) > Post(field1=post_id)
+// Protobuf バイナリから mixi2 イベントの post_id を取り出す
+// PostCreatedEvent:   Event(field4) > PostCreatedEvent(field2) > Post(field1) = post_id
+// リプライ通知イベント: Event(field1) > ReplyEvent(field4) > ReplyPost(field2) > Post(field1) = post_id (UUID)
 function decodeMixi2PostId(bytes) {
   function readVarint(buf, pos) {
     let result = 0, shift = 0;
@@ -92,23 +93,43 @@ function decodeMixi2PostId(bytes) {
         fields[fieldNum] = buf.slice(pos, pos + len.value);
         pos += len.value;
       } else {
-        break; // 未対応のwire typeが来たら終了
+        break;
       }
     }
     return fields;
   }
+  function decodeStr(v) {
+    return v instanceof Uint8Array ? new TextDecoder().decode(v) : null;
+  }
   try {
     const event = readFields(bytes);
-    const postCreated = event[4]; // PostCreatedEvent
-    if (!postCreated) return null;
-    const postCreatedFields = readFields(postCreated);
-    const post = postCreatedFields[2]; // Post
-    if (!post) return null;
-    const postFields = readFields(post);
-    const postIdBytes = postFields[1]; // post_id (string)
-    if (!postIdBytes) return null;
-    return new TextDecoder().decode(postIdBytes);
-  } catch {
+
+    // パス1: PostCreatedEvent — Event(field4) > PostCreatedEvent(field2) > Post(field1)
+    if (event[4] instanceof Uint8Array) {
+      const pcFields = readFields(event[4]);
+      if (pcFields[2] instanceof Uint8Array) {
+        const postFields = readFields(pcFields[2]);
+        const id = decodeStr(postFields[1]);
+        if (id) return id;
+      }
+    }
+
+    // パス2: リプライ通知 — Event(field1) > ReplyEvent(field4) > ReplyPost(field2) > Post(field1)
+    if (event[1] instanceof Uint8Array) {
+      const f1 = readFields(event[1]);
+      if (f1[4] instanceof Uint8Array) {
+        const f14 = readFields(f1[4]);
+        if (f14[2] instanceof Uint8Array) {
+          const f142 = readFields(f14[2]);
+          const id = decodeStr(f142[1]);
+          if (id) return id;
+        }
+      }
+    }
+
+    return null;
+  } catch (e) {
+    console.error('mixi2 decodeMixi2PostId error:', e.message);
     return null;
   }
 }
@@ -385,9 +406,16 @@ async function handleRequest(request, env) {
       }
 
       const note = body.body?.note;
-      const postUrl = note?.url || note?.uri || '';
+      const postUrl = note?.url || note?.uri || (note?.id ? `https://misskey.io/notes/${note.id}` : '');
+      if (!postUrl) {
+        console.warn('Misskey webhook: could not extract reply URL from payload');
+        return new Response(JSON.stringify({ success: false, message: 'Could not extract reply URL' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
 
-      const result = await sendReplyNotification(settings.sourcePlatform, settings, 'misskey', postUrl);
+      const result = await sendReplyNotification(env, settings.sourcePlatform, settings, 'misskey', postUrl);
       return new Response(JSON.stringify(result), {
         status: result.success ? 200 : 500,
         headers: { 'Content-Type': 'application/json' },
@@ -459,8 +487,15 @@ async function handleRequest(request, env) {
         }
         if (postUrl) break;
       }
+      if (!postUrl) {
+        console.warn('Threads webhook: could not extract reply URL from payload');
+        return new Response(JSON.stringify({ success: false, message: 'Could not extract reply URL' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
 
-      const result = await sendReplyNotification(settings.sourcePlatform, settings, 'threads', postUrl);
+      const result = await sendReplyNotification(env, settings.sourcePlatform, settings, 'threads', postUrl);
       return new Response(JSON.stringify(result), {
         status: result.success ? 200 : 500,
         headers: { 'Content-Type': 'application/json' },
@@ -516,14 +551,18 @@ async function handleRequest(request, env) {
 
       if (!settings.notifyReplyMixi2) {
         // 署名検証は通ったがイベント通知は不要 → 204で正常応答
-        return new Response('', { status: 204 });
+        return new Response(null, { status: 204 });
       }
 
       // Protobuf から post_id を取り出して投稿URLを組み立てる
       const postId = decodeMixi2PostId(bodyBytes);
-      const postUrl = postId ? `https://mixi.social/posts/${postId}` : '';
-      await sendReplyNotification(settings.sourcePlatform, settings, 'mixi2', postUrl);
-      return new Response('', { status: 204 });
+      if (!postId) {
+        console.warn('mixi2 webhook: could not extract post_id from payload');
+        return new Response(null, { status: 204 });
+      }
+      const postUrl = `https://mixi.social/posts/${postId}`;
+      await sendReplyNotification(env, settings.sourcePlatform, settings, 'mixi2', postUrl);
+      return new Response(null, { status: 204 });
     } catch (error) {
       console.error('mixi2 webhook error:', error);
       return new Response(JSON.stringify({ error: 'Internal server error' }), {
@@ -1049,7 +1088,7 @@ async function handleQueue(batch, env) {
       continue;
     }
 
-    const formatted = { ...formattedPost, sourcePlatform };
+    const formatted = { ...formattedPost, sourcePlatform, sourceUrl };
 
     try {
       // 既に投稿済みの宛先を除外してリトライ時の重複投稿を防ぐ
@@ -1069,9 +1108,14 @@ async function handleQueue(batch, env) {
       }
 
       const results = await Promise.allSettled(
-        pendingDestinations.map((platform) =>
-          DEST_ADAPTERS[platform].post(env, userWithId, formatted)
-        )
+        pendingDestinations.map((platform) => {
+          // 転記先の文字数上限に合わせてテキストを切り詰める
+          const destFormatted = {
+            ...formatted,
+            text: truncateForDest(formatted.text, platform, formatted.sourceUrl || ''),
+          };
+          return DEST_ADAPTERS[platform].post(env, userWithId, destFormatted);
+        })
       );
 
       // 成功した宛先は即座にKVへ記録
