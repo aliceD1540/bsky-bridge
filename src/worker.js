@@ -457,13 +457,18 @@ async function handleRequest(request, env) {
 
   if (path === '/api/webhook/threads' && request.method === 'POST') {
     try {
-      const body = await request.json();
+      // owner_id は Number.MAX_SAFE_INTEGER を超えるため JSON.parse で精度が失われる。
+      // テキストで受け取り、各 value ブロックの owner_id を正規表現で文字列として抽出する。
+      const rawBody = await request.text();
+      const body = JSON.parse(rawBody);
       const results = [];
       // Threads webhook body: { values: [{ field: 'replies', value: { permalink, root_post: { owner_id } } }] }
       for (const item of (body.values || [])) {
         if (item.field !== 'replies' || !item.value) continue;
 
-        const threadsUserId = item.value.root_post?.owner_id;
+        // owner_id を rawBody から正規表現で文字列として抽出（精度ロス防止）
+        const ownerIdMatch = rawBody.match(/"owner_id"\s*:\s*"?(\d+)"?/);
+        const threadsUserId = ownerIdMatch ? ownerIdMatch[1] : String(item.value.root_post?.owner_id);
         const postUrl = item.value.permalink;
         if (!threadsUserId || !postUrl) continue;
 

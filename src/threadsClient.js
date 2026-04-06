@@ -28,13 +28,16 @@ export async function exchangeCodeForToken({ code, redirectUri, env }) {
     code,
   });
   const res = await fetch(THREADS_TOKEN_URL, { method: 'POST', body });
+  const text = await res.text().catch(() => '');
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
     throw new Error(`Threads code exchange failed: ${res.status} - ${text}`);
   }
-  const data = await res.json();
-  // data.access_token (短期, 1時間), data.user_id
-  return { accessToken: data.access_token, userId: data.user_id };
+  // user_id は Number.MAX_SAFE_INTEGER を超える大きな整数のため、
+  // JSON.parse で精度が失われる。正規表現で文字列として抽出する。
+  const userIdMatch = text.match(/"user_id"\s*:\s*"?(\d+)"?/);
+  const userId = userIdMatch ? userIdMatch[1] : null;
+  const data = JSON.parse(text);
+  return { accessToken: data.access_token, userId };
 }
 
 // 短期トークンを長期トークン（60日）に交換する
