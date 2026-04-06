@@ -6,7 +6,7 @@ import { fetchMixi2AccessToken } from './mixi2Client.js';
 import { isPosted, markPosted, isPostedToPlatform, markPostedToPlatform, getLastPostedAt, setLastPostedAt } from './kvStore.js';
 import { formatPost, truncateForDest } from './formatPost.js';
 import { register, login, logout, verifySession, changePassword, deleteAccount, verifyEmail, requestPasswordReset, resetPassword } from './auth.js';
-import { saveSettings, getSettings, getPublicSettings, getAllUserSettings } from './settings.js';
+import { saveSettings, getSettings, getPublicSettings, getAllUserSettings, findUserByThreadsUserId, findUserByWebhookToken } from './settings.js';
 import { SOURCE_ADAPTERS, DEST_ADAPTERS, getDestinationsForUser } from './adapters.js';
 import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS, HTML_VERIFY_EMAIL, HTML_FORGOT_PASSWORD, HTML_RESET_PASSWORD } from './html.js';
 import { serveProxiedImage } from './mediaProxy.js';
@@ -430,13 +430,11 @@ async function handleRequest(request, env) {
   }
 
   // Webhook: Threads リプライ通知
-  // Meta Developer Console のWebhook設定で:
-  //   コールバックURL = /api/webhook/threads/{userId}?token={webhookToken}
-  //   確認トークン   = {webhookToken}
-  const threadsWebhookMatch = path.match(/^\/api\/webhook\/threads\/([^/]+)$/);
-  if (threadsWebhookMatch && request.method === 'GET') {
-    // Threadsのwebhook検証リクエスト
-    const userId = threadsWebhookMatch[1];
+  // Meta Developer Console のWebhook設定で（アプリレベルで1つ設定）:
+  //   コールバックURL = /api/webhook/threads
+  //   確認トークン   = {webhookToken}（ユーザーごとに異なる → DBで検索）
+  // entry[].id が Threads ユーザーID → threads_user_id でbsky-bridgeユーザーを特定
+  if (path === '/api/webhook/threads' && request.method === 'GET') {
     const mode = url.searchParams.get('hub.mode');
     const challenge = url.searchParams.get('hub.challenge');
     const verifyToken = url.searchParams.get('hub.verify_token') || '';
@@ -445,8 +443,9 @@ async function handleRequest(request, env) {
       return new Response('Bad Request', { status: 400 });
     }
 
-    const settings = await getSettings(env, userId);
-    if (!settings || !constantTimeEquals(settings.webhookToken || '', verifyToken)) {
+    // webhookToken でユーザーを逆引き
+    const userId = await findUserByWebhookToken(env, verifyToken);
+    if (!userId) {
       return new Response('Forbidden', { status: 403 });
     }
 
@@ -456,48 +455,34 @@ async function handleRequest(request, env) {
     });
   }
 
-  if (threadsWebhookMatch && request.method === 'POST') {
-    const userId = threadsWebhookMatch[1];
-    const token = url.searchParams.get('token') || '';
-    const settings = await authenticateWebhook(env, userId, token);
-    if (!settings) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    if (!settings.notifyReplyThreads) {
-      return new Response(JSON.stringify({ success: false, message: 'Notification for Threads is disabled' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
+  if (path === '/api/webhook/threads' && request.method === 'POST') {
     try {
       const body = await request.json();
-      // Threads webhook body: { object: 'threads', entry: [{ changes: [{ field: 'replies', value: { permalink_url: '...' } }] }] }
-      let postUrl = '';
+      // entry ごとに Threads ユーザーID を取得してルーティング
+      const results = [];
       for (const entry of (body.entry || [])) {
+        const threadsUserId = String(entry.id || '');
+        if (!threadsUserId) continue;
+
+        const userId = await findUserByThreadsUserId(env, threadsUserId);
+        if (!userId) {
+          console.warn(`Threads webhook: no user found for threads_user_id=${threadsUserId}`);
+          continue;
+        }
+
+        const settings = await getSettings(env, userId);
+        if (!settings || !settings.notifyReplyThreads) continue;
+
         for (const change of (entry.changes || [])) {
           if (change.field === 'replies' && change.value?.permalink_url) {
-            postUrl = change.value.permalink_url;
-            break;
+            const result = await sendReplyNotification(env, settings.sourcePlatform, settings, 'threads', change.value.permalink_url);
+            results.push({ userId, ...result });
           }
         }
-        if (postUrl) break;
-      }
-      if (!postUrl) {
-        console.warn('Threads webhook: could not extract reply URL from payload');
-        return new Response(JSON.stringify({ success: false, message: 'Could not extract reply URL' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
       }
 
-      const result = await sendReplyNotification(env, settings.sourcePlatform, settings, 'threads', postUrl);
-      return new Response(JSON.stringify(result), {
-        status: result.success ? 200 : 500,
+      return new Response(JSON.stringify({ success: true, results }), {
+        status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
     } catch (error) {
@@ -783,7 +768,7 @@ async function handleRequest(request, env) {
       const redirectUri = `${env.APP_URL}/auth/threads/callback`;
 
       // 短期トークンに交換
-      const { accessToken: shortLivedToken } = await exchangeCodeForToken({ code, redirectUri, env });
+      const { accessToken: shortLivedToken, userId: threadsUserId } = await exchangeCodeForToken({ code, redirectUri, env });
 
       // 長期トークン（60日）に交換
       const { accessToken: longLivedToken, expiresIn } = await exchangeForLongLivedToken({
@@ -795,6 +780,7 @@ async function handleRequest(request, env) {
       await saveSettings(env, Number(userId), {
         threadsToken: longLivedToken,
         threadsTokenExpiresAt: expiresAt,
+        threadsUserId: String(threadsUserId),
       });
 
       settingsUrl.searchParams.set('threads_connected', '1');

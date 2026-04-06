@@ -11,6 +11,7 @@ export async function saveSettings(env, userId, settings) {
     misskeyToken,
     threadsToken,
     threadsTokenExpiresAt,
+    threadsUserId,
     mixi2ClientId,
     mixi2ClientSecret,
     mixi2AccessToken,
@@ -35,6 +36,7 @@ export async function saveSettings(env, userId, settings) {
       threads_token_encrypted,
       threads_token_iv,
       threads_token_expires_at,
+      threads_user_id,
       mixi2_client_id_encrypted,
       mixi2_client_id_iv,
       mixi2_client_secret_encrypted,
@@ -93,6 +95,7 @@ export async function saveSettings(env, userId, settings) {
   const newThreadsExpiresAt = threadsTokenExpiresAt === undefined
     ? (existing?.threads_token_expires_at ?? null)
     : threadsTokenExpiresAt;
+  const newThreadsUserId = threadsUserId !== undefined ? (threadsUserId || null) : (existing?.threads_user_id ?? null);
   const newMixi2TokenExpiresAt = mixi2TokenExpiresAt === undefined
     ? (existing?.mixi2_token_expires_at ?? null)
     : mixi2TokenExpiresAt;
@@ -124,6 +127,7 @@ export async function saveSettings(env, userId, settings) {
         threads_token_encrypted = ?,
         threads_token_iv = ?,
         threads_token_expires_at = ?,
+        threads_user_id = ?,
         mixi2_client_id_encrypted = ?,
         mixi2_client_id_iv = ?,
         mixi2_client_secret_encrypted = ?,
@@ -149,6 +153,7 @@ export async function saveSettings(env, userId, settings) {
         threadsTokenEnc.cipherText,
         threadsTokenEnc.iv,
         newThreadsExpiresAt,
+        newThreadsUserId,
         mixi2ClientIdEnc.cipherText,
         mixi2ClientIdEnc.iv,
         mixi2ClientSecretEnc.cipherText,
@@ -178,6 +183,7 @@ export async function saveSettings(env, userId, settings) {
         threads_token_encrypted,
         threads_token_iv,
         threads_token_expires_at,
+        threads_user_id,
         mixi2_client_id_encrypted,
         mixi2_client_id_iv,
         mixi2_client_secret_encrypted,
@@ -191,7 +197,7 @@ export async function saveSettings(env, userId, settings) {
         notify_reply_mixi2,
         webhook_token,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
       .bind(
         userId,
@@ -204,6 +210,7 @@ export async function saveSettings(env, userId, settings) {
         threadsTokenEnc.cipherText,
         threadsTokenEnc.iv,
         threadsTokenExpiresAt ?? null,
+        newThreadsUserId,
         mixi2ClientIdEnc.cipherText,
         mixi2ClientIdEnc.iv,
         mixi2ClientSecretEnc.cipherText,
@@ -237,6 +244,7 @@ export async function getSettings(env, userId) {
       threads_token_encrypted,
       threads_token_iv,
       threads_token_expires_at,
+      threads_user_id,
       mixi2_client_id_encrypted,
       mixi2_client_id_iv,
       mixi2_client_secret_encrypted,
@@ -283,6 +291,7 @@ export async function getSettings(env, userId) {
     misskeyToken,
     threadsToken,
     threadsTokenExpiresAt: row.threads_token_expires_at,
+    threadsUserId: row.threads_user_id || null,
     mixi2ClientId,
     mixi2ClientSecret,
     mixi2AccessToken,
@@ -458,3 +467,22 @@ export async function getAllUserSettings(env) {
   return settings;
 }
 
+// Threads ユーザーID でbsky-bridgeのユーザーIDを検索（Webhook ルーティング用）
+export async function findUserByThreadsUserId(env, threadsUserId) {
+  const row = await env.DB.prepare(
+    'SELECT user_id FROM user_settings WHERE threads_user_id = ?'
+  )
+    .bind(threadsUserId)
+    .first();
+  return row?.user_id ?? null;
+}
+
+// webhookToken でbsky-bridgeのユーザーIDを検索（Threads Webhook GET 検証用）
+export async function findUserByWebhookToken(env, webhookToken) {
+  const row = await env.DB.prepare(
+    'SELECT user_id FROM user_settings WHERE webhook_token = ?'
+  )
+    .bind(webhookToken)
+    .first();
+  return row?.user_id ?? null;
+}

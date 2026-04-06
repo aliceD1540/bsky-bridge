@@ -1148,7 +1148,7 @@ export const HTML_SETTINGS = `
         if (data.userId && data.webhookToken) {
           const origin = window.location.origin;
           document.getElementById('webhookUrlMisskey').value = \`\${origin}/api/webhook/misskey/\${data.userId}?token=\${data.webhookToken}\`;
-          document.getElementById('webhookUrlThreads').value = \`\${origin}/api/webhook/threads/\${data.userId}?token=\${data.webhookToken}\`;
+          document.getElementById('webhookUrlThreads').value = \`\${origin}/api/webhook/threads\`;
           document.getElementById('webhookUrlMixi2').value = \`\${origin}/api/webhook/mixi2/\${data.userId}?token=\${data.webhookToken}\`;
           document.getElementById('webhookToken').value = data.webhookToken;
           document.getElementById('webhookInfoSection').style.display = 'block';
