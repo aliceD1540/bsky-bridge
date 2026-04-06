@@ -979,11 +979,13 @@ export const HTML_SETTINGS = `
           </div>
           <div class="info" style="margin-bottom:12px;">Misskey.io のWebhook設定で上記URLを登録してください。シークレットは任意ですが、設定する場合は下記のトークンを使用してください。</div>
 
-          <label>Threads Webhook URL</label>
-          <div style="display:flex; gap:8px; margin-bottom:4px;">
-            <input type="text" id="webhookUrlThreads" readonly onclick="this.select()" style="flex:1;">
+          <div id="threadsWebhookSection" style="display:none;">
+            <label>Threads Webhook URL</label>
+            <div style="display:flex; gap:8px; margin-bottom:4px;">
+              <input type="text" id="webhookUrlThreads" readonly onclick="this.select()" style="flex:1;">
+            </div>
+            <div class="info" style="margin-bottom:12px;">Meta Developer Console のWebhook設定でコールバックURLに上記URLを、確認トークンに下記のトークンを設定してください。</div>
           </div>
-          <div class="info" style="margin-bottom:12px;">Meta Developer Console のWebhook設定でコールバックURLに上記URLを、確認トークンに下記のトークンを設定してください。</div>
 
           <label>mixi2 Webhook URL</label>
           <div style="display:flex; gap:8px; margin-bottom:4px;">
@@ -1154,10 +1156,11 @@ export const HTML_SETTINGS = `
           document.getElementById('webhookInfoSection').style.display = 'block';
         }
         
-        // 管理者の場合はmixi2通知設定と公開鍵設定を表示
+        // 管理者の場合はmixi2通知設定と公開鍵設定とThreads Webhook URLを表示
         if (data.isAdmin) {
           document.getElementById('notifyReplyMixi2Container').style.display = 'block';
           document.getElementById('mixi2PublicKeySection').style.display = 'block';
+          document.getElementById('threadsWebhookSection').style.display = 'block';
           if (data.mixi2WebhookPublicKey) {
             document.getElementById('mixi2WebhookPublicKey').value = data.mixi2WebhookPublicKey;
           }
