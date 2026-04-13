@@ -887,11 +887,11 @@ export const HTML_SETTINGS = `
         <h3>Bluesky <span class="text-danger" id="blueskyStatusWarning" style="display:none;">認証情報未設定</span></h3>
         <div class="form-group">
           <label for="blueskyHandle">アカウント名</label>
-          <input type="text" id="blueskyHandle" placeholder="example.bsky.social">
+          <input type="text" id="blueskyHandle" placeholder="example.bsky.social" autocomplete="off">
         </div>
         <div class="form-group">
           <label for="blueskyAppPassword">アプリパスワード</label>
-          <input type="password" id="blueskyAppPassword" placeholder="変更しない場合は空欄のまま">
+          <input type="password" id="blueskyAppPassword" placeholder="変更しない場合は空欄のまま" autocomplete="off">
           <div class="info">Blueskyの設定からアプリパスワードを生成してください。転記元・転記先どちらで使用する場合も設定が必要です。</div>
         </div>
         <div id="blueskyDeleteBtnContainer" style="display:none;">
@@ -901,7 +901,7 @@ export const HTML_SETTINGS = `
         <h3>Misskey.io <span class="text-danger" id="misskeyStatusWarning" style="display:none;">認証情報未設定</span></h3>
         <div class="form-group">
           <label for="misskeyToken">アクセストークン</label>
-          <input type="password" id="misskeyToken" placeholder="変更しない場合は空欄のまま">
+          <input type="password" id="misskeyToken" placeholder="変更しない場合は空欄のまま" autocomplete="off">
           <div class="info">Misskey.ioの設定から「アカウントの情報を見る」「ドライブを操作する」「ノートを作成・削除する」の権限を持つアクセストークンを生成してください。</div>
         </div>
         <div id="misskeyDeleteBtnContainer" style="display:none;">
@@ -926,12 +926,12 @@ export const HTML_SETTINGS = `
           <h3>mixi2（管理者のみ） <span class="text-danger" id="mixi2StatusWarning" style="display:none;">認証情報未設定</span></h3>
           <div class="form-group">
             <label for="mixi2ClientId">Botアカウント クライアントID</label>
-            <input type="password" id="mixi2ClientId" placeholder="変更しない場合は空欄のまま">
+            <input type="password" id="mixi2ClientId" placeholder="変更しない場合は空欄のまま" autocomplete="off">
             <div class="info">投稿用BotアカウントのOAuth 2.0クライアントIDを入力してください。</div>
           </div>
           <div class="form-group">
             <label for="mixi2ClientSecret">Botアカウント クライアントシークレット</label>
-            <input type="password" id="mixi2ClientSecret" placeholder="変更しない場合は空欄のまま">
+            <input type="password" id="mixi2ClientSecret" placeholder="変更しない場合は空欄のまま" autocomplete="off">
             <div class="info">投稿用BotアカウントのOAuth 2.0クライアントシークレットを入力してください。</div>
           </div>
           <div id="mixi2DeleteBtnContainer" style="display:none;">
