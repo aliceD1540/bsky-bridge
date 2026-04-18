@@ -39,7 +39,7 @@ async function uploadBlob(imageUrl, accessJwt) {
   return data.blob;
 }
 
-export async function postToBluesky({ text, images = [], handle, appPassword }) {
+export async function postToBluesky({ text, images = [], handle, appPassword, facets }) {
   const { did, accessJwt } = await createSession(handle, appPassword);
 
   let embed;
@@ -58,6 +58,7 @@ export async function postToBluesky({ text, images = [], handle, appPassword }) 
     text,
     createdAt: new Date().toISOString(),
     ...(embed ? { embed } : {}),
+    ...(facets && facets.length > 0 ? { facets } : {}),
   };
 
   const res = await fetch(`${BLUESKY_PDS}/com.atproto.repo.createRecord`, {

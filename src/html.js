@@ -104,6 +104,7 @@ const MODAL_HTML = `
             <li><b>Threads</b>：「Threadsに接続」ボタンから OAuth 認証を完了します（完了時に自動保存）。</li>
           </ul>
         </li>
+        <li>（オプション）設定画面「リプライ通知設定」で、転記先でリプライがあった場合に通知を受け取るプラットフォームを選択できます。</li>
         <li>設定完了後、5分以内に転記が開始されます。転記元以外の認証済みプラットフォームがすべて転記先になります。認証情報が未設定のプラットフォームは転記先から除外されます（設定画面に赤文字で表示されます）。</li>
       </ol>
 
@@ -886,11 +887,11 @@ export const HTML_SETTINGS = `
         <h3>Bluesky <span class="text-danger" id="blueskyStatusWarning" style="display:none;">認証情報未設定</span></h3>
         <div class="form-group">
           <label for="blueskyHandle">アカウント名</label>
-          <input type="text" id="blueskyHandle" placeholder="example.bsky.social">
+          <input type="text" id="blueskyHandle" placeholder="example.bsky.social" autocomplete="off">
         </div>
         <div class="form-group">
           <label for="blueskyAppPassword">アプリパスワード</label>
-          <input type="password" id="blueskyAppPassword" placeholder="変更しない場合は空欄のまま">
+          <input type="password" id="blueskyAppPassword" placeholder="変更しない場合は空欄のまま" autocomplete="off">
           <div class="info">Blueskyの設定からアプリパスワードを生成してください。転記元・転記先どちらで使用する場合も設定が必要です。</div>
         </div>
         <div id="blueskyDeleteBtnContainer" style="display:none;">
@@ -900,7 +901,7 @@ export const HTML_SETTINGS = `
         <h3>Misskey.io <span class="text-danger" id="misskeyStatusWarning" style="display:none;">認証情報未設定</span></h3>
         <div class="form-group">
           <label for="misskeyToken">アクセストークン</label>
-          <input type="password" id="misskeyToken" placeholder="変更しない場合は空欄のまま">
+          <input type="password" id="misskeyToken" placeholder="変更しない場合は空欄のまま" autocomplete="off">
           <div class="info">Misskey.ioの設定から「アカウントの情報を見る」「ドライブを操作する」「ノートを作成・削除する」の権限を持つアクセストークンを生成してください。</div>
         </div>
         <div id="misskeyDeleteBtnContainer" style="display:none;">
@@ -925,12 +926,12 @@ export const HTML_SETTINGS = `
           <h3>mixi2（管理者のみ） <span class="text-danger" id="mixi2StatusWarning" style="display:none;">認証情報未設定</span></h3>
           <div class="form-group">
             <label for="mixi2ClientId">Botアカウント クライアントID</label>
-            <input type="password" id="mixi2ClientId" placeholder="変更しない場合は空欄のまま">
+            <input type="password" id="mixi2ClientId" placeholder="変更しない場合は空欄のまま" autocomplete="off">
             <div class="info">投稿用BotアカウントのOAuth 2.0クライアントIDを入力してください。</div>
           </div>
           <div class="form-group">
             <label for="mixi2ClientSecret">Botアカウント クライアントシークレット</label>
-            <input type="password" id="mixi2ClientSecret" placeholder="変更しない場合は空欄のまま">
+            <input type="password" id="mixi2ClientSecret" placeholder="変更しない場合は空欄のまま" autocomplete="off">
             <div class="info">投稿用BotアカウントのOAuth 2.0クライアントシークレットを入力してください。</div>
           </div>
           <div id="mixi2DeleteBtnContainer" style="display:none;">
@@ -942,6 +943,73 @@ export const HTML_SETTINGS = `
           <button type="button" id="saveCredentialsBtn">保存</button>
         </div>
         <div id="credentialsMessage"></div>
+      </div>
+
+      <div class="card">
+        <h2>リプライ通知設定</h2>
+        <p class="info">転記先でリプライがあった場合、転記元アカウントに通知を送信できます。各プラットフォームのWebhook設定に以下のURLを登録してください。</p>
+        
+        <div class="form-group">
+          <label class="radio-label" style="cursor:auto;">
+            <input type="checkbox" id="notifyReplyMisskey" style="width:auto;">
+            <span>Misskey.ioのリプライを通知</span>
+          </label>
+        </div>
+        
+        <div class="form-group">
+          <label class="radio-label" style="cursor:auto;">
+            <input type="checkbox" id="notifyReplyThreads" style="width:auto;">
+            <span>Threadsのリプライを通知</span>
+          </label>
+        </div>
+        
+        <div class="form-group" id="notifyReplyMixi2Container" style="display:none;">
+          <label class="radio-label" style="cursor:auto;">
+            <input type="checkbox" id="notifyReplyMixi2" style="width:auto;">
+            <span>mixi2のリプライを通知</span>
+          </label>
+        </div>
+
+        <div class="form-group" id="webhookInfoSection" style="display:none;">
+          <h3 style="font-size:1rem; margin-bottom:8px;">Webhook設定情報</h3>
+
+          <label>Misskey.io Webhook URL</label>
+          <div style="display:flex; gap:8px; margin-bottom:4px;">
+            <input type="text" id="webhookUrlMisskey" readonly onclick="this.select()" style="flex:1;">
+          </div>
+          <div class="info" style="margin-bottom:12px;">Misskey.io のWebhook設定で上記URLを登録してください。シークレットは任意ですが、設定する場合は下記のトークンを使用してください。</div>
+
+          <div id="threadsWebhookSection" style="display:none;">
+            <label>Threads Webhook URL</label>
+            <div style="display:flex; gap:8px; margin-bottom:4px;">
+              <input type="text" id="webhookUrlThreads" readonly onclick="this.select()" style="flex:1;">
+            </div>
+            <div class="info" style="margin-bottom:12px;">Meta Developer Console のWebhook設定でコールバックURLに上記URLを、確認トークンに下記のトークンを設定してください。</div>
+          </div>
+
+          <div id="mixi2WebhookSection" style="display:none;">
+            <label>mixi2 Webhook URL</label>
+            <div style="display:flex; gap:8px; margin-bottom:4px;">
+              <input type="text" id="webhookUrlMixi2" readonly onclick="this.select()" style="flex:1;">
+            </div>
+            <div class="info" style="margin-bottom:12px;">mixi2 のWebhook設定で上記URLを登録してください。</div>
+          </div>
+
+          <div id="mixi2PublicKeySection" style="display:none;">
+            <label for="mixi2WebhookPublicKey">mixi2 署名検証用公開鍵（Base64）</label>
+            <textarea id="mixi2WebhookPublicKey" rows="3" placeholder="mixi2のWebhook設定で共有された署名検証用公開鍵を貼り付けてください（Base64形式）" style="font-family:monospace; font-size:0.85rem;"></textarea>
+            <div class="info" style="margin-bottom:12px;">mixi2 のWebhook設定を行うと署名検証用の公開鍵が発行されます。これを入力するとWebhookの署名を検証できます（管理者のみ）。</div>
+          </div>
+
+          <label for="webhookToken">Webhook認証トークン（共通）</label>
+          <input type="text" id="webhookToken" readonly onclick="this.select()">
+          <div class="info">このトークンはすべてのプラットフォームで共通です。外部に漏らさないようにしてください。</div>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="saveNotificationBtn">保存</button>
+        </div>
+        <div id="notificationMessage"></div>
       </div>
     </div>
 
@@ -1025,11 +1093,23 @@ export const HTML_SETTINGS = `
           warningDiv.style.display = 'none';
         }
         
-        // 管理者の場合はお知らせ編集カードとmixi2設定を表示
+        // Misskey.ioのWebhook URLは全ユーザー向け。管理者には追加で管理機能と他Webhook設定を表示
         if (data.isAdmin) {
           document.getElementById('announcementEditorCard').style.display = 'block';
           document.getElementById('mixi2Section').style.display = 'block';
           loadAnnouncement();
+          updateAuthStatus('mixi2', data.hasMixi2Config);
+          if (data.hasMixi2Config) {
+            document.getElementById('mixi2ClientId').placeholder = '設定済み（変更する場合のみ入力）';
+            document.getElementById('mixi2ClientSecret').placeholder = '設定済み（変更する場合のみ入力）';
+          }
+          document.getElementById('notifyReplyMixi2Container').style.display = 'block';
+          document.getElementById('mixi2PublicKeySection').style.display = 'block';
+          document.getElementById('threadsWebhookSection').style.display = 'block';
+          document.getElementById('mixi2WebhookSection').style.display = 'block';
+          if (data.mixi2WebhookPublicKey) {
+            document.getElementById('mixi2WebhookPublicKey').value = data.mixi2WebhookPublicKey;
+          }
         }
         
         if (data.blueskyHandle) {
@@ -1040,15 +1120,6 @@ export const HTML_SETTINGS = `
         updateAuthStatus('bluesky', data.hasBlueskyAppPassword);
         updateAuthStatus('misskey', data.hasMisskeyToken);
         updateAuthStatus('threads', data.hasThreadsToken);
-        
-        // 管理者の場合はmixi2の認証状態も更新
-        if (data.isAdmin) {
-          updateAuthStatus('mixi2', data.hasMixi2Config);
-          if (data.hasMixi2Config) {
-            document.getElementById('mixi2ClientId').placeholder = '設定済み（変更する場合のみ入力）';
-            document.getElementById('mixi2ClientSecret').placeholder = '設定済み（変更する場合のみ入力）';
-          }
-        }
         
         // アプリパスワード設定状態を反映
         if (data.hasBlueskyAppPassword) {
@@ -1074,6 +1145,21 @@ export const HTML_SETTINGS = `
         }
         
         updateThreadsStatus(data);
+
+        // 通知設定の読み込み
+        document.getElementById('notifyReplyMisskey').checked = data.notifyReplyMisskey || false;
+        document.getElementById('notifyReplyThreads').checked = data.notifyReplyThreads || false;
+        document.getElementById('notifyReplyMixi2').checked = data.notifyReplyMixi2 || false;
+        
+        // Webhook情報の表示（userId と webhookToken が揃っている場合）
+        if (data.userId && data.webhookToken) {
+          const origin = window.location.origin;
+          document.getElementById('webhookUrlMisskey').value = origin + '/api/webhook/misskey/' + data.userId + '?token=' + data.webhookToken;
+          document.getElementById('webhookUrlThreads').value = origin + '/api/webhook/threads';
+          document.getElementById('webhookUrlMixi2').value = origin + '/api/webhook/mixi2/' + data.userId + '?token=' + data.webhookToken;
+          document.getElementById('webhookToken').value = data.webhookToken;
+          document.getElementById('webhookInfoSection').style.display = 'block';
+        }
       } catch (err) {
         console.error('設定の読み込みに失敗しました', err);
       }
@@ -1317,6 +1403,45 @@ export const HTML_SETTINGS = `
         const data = await res.json();
         messageDiv.className = data.success ? 'success' : 'error';
         messageDiv.textContent = data.success ? '転記元を保存しました' : (data.error || '保存に失敗しました');
+      } catch (err) {
+        messageDiv.className = 'error';
+        messageDiv.textContent = 'エラーが発生しました';
+      }
+    });
+
+    // 通知設定の保存
+    document.getElementById('saveNotificationBtn').addEventListener('click', async () => {
+      const messageDiv = document.getElementById('notificationMessage');
+      
+      const settings = {
+        notifyReplyMisskey: document.getElementById('notifyReplyMisskey').checked,
+        notifyReplyThreads: document.getElementById('notifyReplyThreads').checked,
+        notifyReplyMixi2: document.getElementById('notifyReplyMixi2').checked,
+      };
+
+      // 管理者の場合はmixi2公開鍵も保存
+      const mixi2KeyEl = document.getElementById('mixi2WebhookPublicKey');
+      if (mixi2KeyEl && mixi2KeyEl.closest('[style*="display:none"]') === null) {
+        settings.mixi2WebhookPublicKey = mixi2KeyEl.value.trim() || null;
+      }
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(settings),
+        });
+
+        if (res.status === 401) { window.location.href = '/login'; return; }
+
+        const data = await res.json();
+        messageDiv.className = data.success ? 'success' : 'error';
+        messageDiv.textContent = data.success ? '通知設定を保存しました' : (data.error || '保存に失敗しました');
+        
+        if (data.success) {
+          await loadSettings();
+        }
       } catch (err) {
         messageDiv.className = 'error';
         messageDiv.textContent = 'エラーが発生しました';
