@@ -5,6 +5,10 @@ const THREADS_API = 'https://graph.threads.net/v1.0';
 const THREADS_AUTH_URL = 'https://threads.net/oauth/authorize';
 const THREADS_TOKEN_URL = 'https://graph.threads.net/oauth/access_token';
 const THREADS_LONG_LIVED_TOKEN_URL = 'https://graph.threads.net/access_token';
+const THREADS_CONTAINER_READY_STATES = new Set(['FINISHED', 'PUBLISHED']);
+const THREADS_CONTAINER_FAILURE_STATES = new Set(['ERROR', 'EXPIRED']);
+const THREADS_CONTAINER_POLL_INTERVAL_MS = 5000;
+const THREADS_CONTAINER_POLL_ATTEMPTS = 7;
 
 // OAuth認可URLを生成する
 export function buildThreadsAuthUrl({ clientId, redirectUri, state }) {
@@ -96,6 +100,40 @@ async function createContainer({ userId, params, accessToken }) {
   return data.id;
 }
 
+async function getContainerStatus({ creationId, accessToken }) {
+  const url = `${THREADS_API}/${creationId}?fields=status,error_message&access_token=${accessToken}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Threads getContainerStatus failed: ${res.status} - ${text}`);
+  }
+  return await res.json();
+}
+
+async function waitForContainerReady({ creationId, accessToken, label }) {
+  let lastStatus = null;
+
+  for (let attempt = 0; attempt < THREADS_CONTAINER_POLL_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, THREADS_CONTAINER_POLL_INTERVAL_MS));
+    }
+
+    const statusData = await getContainerStatus({ creationId, accessToken });
+    const status = statusData?.status || null;
+    const errorMessage = statusData?.error_message || '';
+    lastStatus = status;
+
+    if (THREADS_CONTAINER_READY_STATES.has(status)) return;
+    if (THREADS_CONTAINER_FAILURE_STATES.has(status)) {
+      throw new Error(
+        `Threads ${label} processing failed: ${status}${errorMessage ? ` - ${errorMessage}` : ''}`
+      );
+    }
+  }
+
+  throw new Error(`Threads ${label} processing timed out: ${lastStatus || 'UNKNOWN'}`);
+}
+
 async function publishContainer({ userId, creationId, accessToken }) {
   const url = `${THREADS_API}/${userId}/threads_publish`;
   const body = new URLSearchParams({ creation_id: creationId, access_token: accessToken });
@@ -140,6 +178,7 @@ export async function postToThreads({ text, images = [], accessToken }) {
         params: { media_type: 'IMAGE', image_url: validImages[0], text },
         accessToken,
       });
+      await waitForContainerReady({ creationId, accessToken, label: 'image container' });
     } catch (e) {
       console.warn('Threads image upload failed, falling back to text-only:', e.message);
       creationId = await createContainer({
@@ -152,19 +191,26 @@ export async function postToThreads({ text, images = [], accessToken }) {
     // カルーセル（複数画像）失敗時はテキストのみにフォールバック
     try {
       const childIds = await Promise.all(
-        validImages.map((url) =>
-          createContainer({
+        validImages.map(async (url, index) => {
+          const childId = await createContainer({
             userId,
             params: { media_type: 'IMAGE', image_url: url, is_carousel_item: 'true' },
             accessToken,
-          })
-        )
+          });
+          await waitForContainerReady({
+            creationId: childId,
+            accessToken,
+            label: `carousel child ${index + 1}`,
+          });
+          return childId;
+        })
       );
       creationId = await createContainer({
         userId,
         params: { media_type: 'CAROUSEL', children: childIds.join(','), text },
         accessToken,
       });
+      await waitForContainerReady({ creationId, accessToken, label: 'carousel container' });
     } catch (e) {
       console.warn('Threads carousel upload failed, falling back to text-only:', e.message);
       creationId = await createContainer({
