@@ -987,11 +987,13 @@ export const HTML_SETTINGS = `
             <div class="info" style="margin-bottom:12px;">Meta Developer Console のWebhook設定でコールバックURLに上記URLを、確認トークンに下記のトークンを設定してください。</div>
           </div>
 
-          <label>mixi2 Webhook URL</label>
-          <div style="display:flex; gap:8px; margin-bottom:4px;">
-            <input type="text" id="webhookUrlMixi2" readonly onclick="this.select()" style="flex:1;">
+          <div id="mixi2WebhookSection" style="display:none;">
+            <label>mixi2 Webhook URL</label>
+            <div style="display:flex; gap:8px; margin-bottom:4px;">
+              <input type="text" id="webhookUrlMixi2" readonly onclick="this.select()" style="flex:1;">
+            </div>
+            <div class="info" style="margin-bottom:12px;">mixi2 のWebhook設定で上記URLを登録してください。</div>
           </div>
-          <div class="info" style="margin-bottom:12px;">mixi2 のWebhook設定で上記URLを登録してください。</div>
 
           <div id="mixi2PublicKeySection" style="display:none;">
             <label for="mixi2WebhookPublicKey">mixi2 署名検証用公開鍵（Base64）</label>
@@ -1091,7 +1093,7 @@ export const HTML_SETTINGS = `
           warningDiv.style.display = 'none';
         }
         
-        // 管理者の場合はお知らせ編集カード・mixi2設定・mixi2通知・公開鍵・Threads Webhook URLを表示
+        // Misskey.ioのWebhook URLは全ユーザー向け。管理者には追加で管理機能と他Webhook設定を表示
         if (data.isAdmin) {
           document.getElementById('announcementEditorCard').style.display = 'block';
           document.getElementById('mixi2Section').style.display = 'block';
@@ -1104,6 +1106,7 @@ export const HTML_SETTINGS = `
           document.getElementById('notifyReplyMixi2Container').style.display = 'block';
           document.getElementById('mixi2PublicKeySection').style.display = 'block';
           document.getElementById('threadsWebhookSection').style.display = 'block';
+          document.getElementById('mixi2WebhookSection').style.display = 'block';
           if (data.mixi2WebhookPublicKey) {
             document.getElementById('mixi2WebhookPublicKey').value = data.mixi2WebhookPublicKey;
           }
@@ -1151,9 +1154,9 @@ export const HTML_SETTINGS = `
         // Webhook情報の表示（userId と webhookToken が揃っている場合）
         if (data.userId && data.webhookToken) {
           const origin = window.location.origin;
-          document.getElementById('webhookUrlMisskey').value = \`\${origin}/api/webhook/misskey/\${data.userId}?token=\${data.webhookToken}\`;
-          document.getElementById('webhookUrlThreads').value = \`\${origin}/api/webhook/threads\`;
-          document.getElementById('webhookUrlMixi2').value = \`\${origin}/api/webhook/mixi2/\${data.userId}?token=\${data.webhookToken}\`;
+          document.getElementById('webhookUrlMisskey').value = origin + '/api/webhook/misskey/' + data.userId + '?token=' + data.webhookToken;
+          document.getElementById('webhookUrlThreads').value = origin + '/api/webhook/threads';
+          document.getElementById('webhookUrlMixi2').value = origin + '/api/webhook/mixi2/' + data.userId + '?token=' + data.webhookToken;
           document.getElementById('webhookToken').value = data.webhookToken;
           document.getElementById('webhookInfoSection').style.display = 'block';
         }

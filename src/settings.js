@@ -2,6 +2,46 @@
 
 import { encrypt, decrypt } from './crypto.js';
 
+function createWebhookToken() {
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
+  return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function ensureWebhookToken(env, userId, row) {
+  if (row?.webhook_token) return row.webhook_token;
+
+  const webhookToken = createWebhookToken();
+  const now = new Date().toISOString();
+
+  if (row) {
+    await env.DB.prepare(`
+      UPDATE user_settings
+      SET webhook_token = ?, updated_at = ?
+      WHERE user_id = ?
+    `)
+      .bind(webhookToken, now, userId)
+      .run();
+    return webhookToken;
+  }
+
+  await env.DB.prepare(`
+    INSERT INTO user_settings (
+      user_id,
+      source_platform,
+      notify_reply_misskey,
+      notify_reply_threads,
+      notify_reply_mixi2,
+      webhook_token,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `)
+    .bind(userId, 'bluesky', 0, 0, 0, webhookToken, now)
+    .run();
+
+  return webhookToken;
+}
+
 // 設定保存
 export async function saveSettings(env, userId, settings) {
   const {
@@ -108,12 +148,7 @@ export async function saveSettings(env, userId, settings) {
   const newNotifyReplyThreads = notifyReplyThreads !== undefined ? (notifyReplyThreads ? 1 : 0) : (existing?.notify_reply_threads ?? 0);
   const newNotifyReplyMixi2 = notifyReplyMixi2 !== undefined ? (notifyReplyMixi2 ? 1 : 0) : (existing?.notify_reply_mixi2 ?? 0);
 
-  let webhookToken = existing?.webhook_token;
-  if (!webhookToken) {
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
-    webhookToken = Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('');
-  }
+  const webhookToken = existing?.webhook_token || createWebhookToken();
 
   if (existing) {
     await env.DB.prepare(`
@@ -339,6 +374,8 @@ export async function getPublicSettings(env, userId) {
 
   const isAdmin = !!(env.ADMIN_EMAIL && userRow?.email === env.ADMIN_EMAIL);
 
+  const webhookToken = await ensureWebhookToken(env, userId, row);
+
   if (!row) {
     const today = new Date().toISOString().split('T')[0];
     const countKey = `daily_post_count:${today}:${userId}`;
@@ -361,7 +398,7 @@ export async function getPublicSettings(env, userId) {
       notifyReplyMisskey: false,
       notifyReplyThreads: false,
       notifyReplyMixi2: false,
-      webhookToken: null,
+      webhookToken,
     };
   }
 
@@ -387,7 +424,7 @@ export async function getPublicSettings(env, userId) {
     notifyReplyMisskey: row.notify_reply_misskey === 1,
     notifyReplyThreads: row.notify_reply_threads === 1,
     notifyReplyMixi2: row.notify_reply_mixi2 === 1,
-    webhookToken: row.webhook_token,
+    webhookToken,
   };
 }
 
