@@ -5,7 +5,7 @@ import { refreshThreadsToken, buildThreadsAuthUrl, exchangeCodeForToken, exchang
 import { fetchMixi2AccessToken } from './mixi2Client.js';
 import { isPosted, markPosted, isPostedToPlatform, markPostedToPlatform, getLastPostedAt, setLastPostedAt } from './kvStore.js';
 import { formatPost, truncateForDest } from './formatPost.js';
-import { register, login, logout, verifySession, changePassword, deleteAccount, verifyEmail, requestPasswordReset, resetPassword } from './auth.js';
+import { register, login, loginWithGoogle, logout, verifySession, changePassword, deleteAccount, verifyEmail, requestPasswordReset, resetPassword } from './auth.js';
 import { saveSettings, getSettings, getPublicSettings, getAllUserSettings, findUserByThreadsUserId, findUserByWebhookToken } from './settings.js';
 import { SOURCE_ADAPTERS, DEST_ADAPTERS, getDestinationsForUser } from './adapters.js';
 import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS, HTML_VERIFY_EMAIL, HTML_FORGOT_PASSWORD, HTML_RESET_PASSWORD } from './html.js';
@@ -167,6 +167,91 @@ function getSessionToken(request) {
     if (match) return match[1];
   }
   return request.headers.get('Authorization')?.replace('Bearer ', '') || null;
+}
+
+function buildGoogleRedirectUri(request, env) {
+  const baseUrl = env.APP_URL || new URL(request.url).origin;
+  return new URL('/auth/google/callback', baseUrl).toString();
+}
+
+function getGoogleIntentPath(intent) {
+  return intent === 'register' ? '/register' : '/login';
+}
+
+function buildGoogleAuthUrl(request, env, state) {
+  const googleUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  googleUrl.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
+  googleUrl.searchParams.set('redirect_uri', buildGoogleRedirectUri(request, env));
+  googleUrl.searchParams.set('response_type', 'code');
+  googleUrl.searchParams.set('scope', 'openid email profile');
+  googleUrl.searchParams.set('state', state);
+  googleUrl.searchParams.set('prompt', 'select_account');
+  return googleUrl.toString();
+}
+
+function buildGoogleErrorRedirect(request, path, errorCode, extraHeaders = {}) {
+  const location = new URL(path, request.url);
+  location.searchParams.set('error', errorCode);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: location.toString(),
+      ...extraHeaders,
+    },
+  });
+}
+
+async function exchangeGoogleCodeForProfile(request, env, code) {
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: buildGoogleRedirectUri(request, env),
+      grant_type: 'authorization_code',
+    }),
+  });
+
+  if (!tokenResponse.ok) {
+    console.error('Google token exchange failed:', tokenResponse.status, await tokenResponse.text());
+    throw new Error('Google token exchange failed');
+  }
+
+  const tokenData = await tokenResponse.json();
+  if (!tokenData.access_token) {
+    throw new Error('Google access token missing');
+  }
+
+  const userInfoResponse = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+    headers: {
+      Authorization: `Bearer ${tokenData.access_token}`,
+    },
+  });
+
+  if (!userInfoResponse.ok) {
+    console.error('Google userinfo fetch failed:', userInfoResponse.status, await userInfoResponse.text());
+    throw new Error('Google userinfo fetch failed');
+  }
+
+  return userInfoResponse.json();
+}
+
+function buildGoogleAuthSection(path, env) {
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+    return '';
+  }
+
+  const label = path === '/register' ? 'Googleで登録' : 'Googleでログイン';
+  const intent = path === '/register' ? 'register' : 'login';
+  return `
+    <div class="oauth-divider"><span>または</span></div>
+    <a class="google-auth-button" href="/auth/google?intent=${intent}">
+      <span class="google-auth-icon" aria-hidden="true">G</span>
+      <span>${label}</span>
+    </a>
+  `;
 }
 
 // KVに保存されたトークンを優先し、期限が7日以内なら自動リフレッシュする（マルチユーザー対応）
@@ -360,6 +445,90 @@ async function handleRequest(request, env) {
       status: result.success ? 200 : 400,
       headers: { 'Content-Type': 'application/json' },
     });
+  }
+
+  if (path === '/auth/google' && request.method === 'GET') {
+    const intent = url.searchParams.get('intent');
+    const returnPath = getGoogleIntentPath(intent);
+
+    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+      return buildGoogleErrorRedirect(request, returnPath, 'google_not_configured');
+    }
+
+    const state = generateOAuthState();
+    await env.KV.put(`google_oauth_state:${state}`, JSON.stringify({ returnPath }), {
+      expirationTtl: 600,
+    });
+
+    return Response.redirect(buildGoogleAuthUrl(request, env, state), 302);
+  }
+
+  if (path === '/auth/google/callback' && request.method === 'GET') {
+    const state = url.searchParams.get('state');
+    const code = url.searchParams.get('code');
+    const googleError = url.searchParams.get('error');
+
+    if (!state) {
+      return buildGoogleErrorRedirect(request, '/login', 'google_invalid_state');
+    }
+
+    const stateKey = `google_oauth_state:${state}`;
+    const storedState = await env.KV.get(stateKey);
+    await env.KV.delete(stateKey);
+
+    if (!storedState) {
+      return buildGoogleErrorRedirect(request, '/login', 'google_invalid_state');
+    }
+
+    let returnPath = '/login';
+    try {
+      const parsedState = JSON.parse(storedState);
+      if (parsedState?.returnPath === '/register') {
+        returnPath = '/register';
+      }
+    } catch (err) {
+      console.error('Invalid Google OAuth state payload:', err);
+      return buildGoogleErrorRedirect(request, '/login', 'google_invalid_state');
+    }
+
+    if (googleError) {
+      return buildGoogleErrorRedirect(
+        request,
+        returnPath,
+        googleError === 'access_denied' ? 'google_access_denied' : 'google_login_failed',
+      );
+    }
+
+    if (!code || !env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
+      return buildGoogleErrorRedirect(request, returnPath, 'google_login_failed');
+    }
+
+    try {
+      const profile = await exchangeGoogleCodeForProfile(request, env, code);
+      const result = await loginWithGoogle(env, profile);
+
+      if (!result.success) {
+        const errorCode = result.error === 'Google account must have a verified email address'
+          ? 'google_email_unverified'
+          : (result.error === 'This email address is already linked to another Google account'
+            ? 'google_email_conflict'
+            : (result.error?.includes('アカウント作成の上限')
+              ? 'google_account_limit'
+              : 'google_login_failed'));
+        return buildGoogleErrorRedirect(request, returnPath, errorCode);
+      }
+
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: new URL('/settings', request.url).toString(),
+          'Set-Cookie': buildSessionCookie(result.sessionToken),
+        },
+      });
+    } catch (err) {
+      console.error('Google login callback failed:', err);
+      return buildGoogleErrorRedirect(request, returnPath, 'google_login_failed');
+    }
   }
 
   // Webhook: Misskey.io リプライ通知
@@ -848,6 +1017,7 @@ function serveHTML(env, path) {
   };
   
   let html = pages[path] || pages['/'];
+  html = html.replace('__GOOGLE_AUTH_SECTION__', buildGoogleAuthSection(path, env));
   
   // メンテナンスモード時はバナーを挿入
   const maintenanceMode = env.MAINTENANCE_MODE === 'true';

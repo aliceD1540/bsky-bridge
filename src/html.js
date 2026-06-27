@@ -95,7 +95,7 @@ const MODAL_HTML = `
 
       <h3>セットアップ手順</h3>
       <ol style="color:#555;line-height:1.8;font-size:14px;padding-left:1.4em">
-        <li>アカウントを作成してログインします。</li>
+        <li>メールアドレスとパスワードでアカウントを作成するか、Googleアカウントでログインします。</li>
         <li>設定画面「転記元指定」で転記元にするプラットフォームを選択し、「保存」します。</li>
         <li>設定画面「認証情報」で、使用するプラットフォームの認証情報を入力します。
           <ul style="margin-top:4px">
@@ -188,8 +188,9 @@ const MODAL_HTML = `
       <h3>収集する情報</h3>
       <p>本サービスは以下の情報を収集・保存します。</p>
       <ul>
-        <li>メールアドレス（アカウント登録時）</li>
-        <li>パスワード（PBKDF2+saltによりハッシュ化して保管）</li>
+        <li>メールアドレス（アカウント登録時、またはGoogleログイン利用時）</li>
+        <li>パスワード（PBKDF2+saltによりハッシュ化して保管。Googleログインのみを利用する場合は、ユーザーが後から設定するまで実用パスワードは保存しません）</li>
+        <li>Googleアカウントの識別子（Googleログイン利用時のアカウント連携用）</li>
         <li>Bluesky のユーザーハンドルおよびアプリパスワード</li>
         <li>Threads の長期アクセストークンおよび有効期限</li>
         <li>Misskey.io のアクセストークン</li>
@@ -200,7 +201,7 @@ const MODAL_HTML = `
       <h3>情報の利用目的</h3>
       <p>収集した情報は以下の目的にのみ使用します。</p>
       <ul>
-        <li>ユーザー認証およびセッション管理</li>
+        <li>ユーザー認証およびセッション管理（Googleログインを含む）</li>
         <li>Bluesky の新着ポストを Threads・Misskey.io へ転記する処理</li>
       </ul>
 
@@ -382,6 +383,62 @@ export const HTML_LOGIN = `
       margin-top: 20px;
       font-size: 14px;
     }
+    .oauth-divider {
+      position: relative;
+      margin: 24px 0 16px;
+      text-align: center;
+      color: #657786;
+      font-size: 13px;
+    }
+    .oauth-divider::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: #e1e8ed;
+    }
+    .oauth-divider span {
+      position: relative;
+      background: white;
+      padding: 0 12px;
+    }
+    .google-auth-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 16px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+      color: #333;
+      font-size: 15px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    .google-auth-button:hover {
+      background: #f8f9fa;
+      border-color: #cfd9de;
+      text-decoration: none;
+    }
+    .google-auth-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #4285f4;
+      color: white;
+      font-weight: 700;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+    }
     a {
       color: #1da1f2;
       text-decoration: none;
@@ -446,6 +503,7 @@ export const HTML_LOGIN = `
           <button type="submit">ログイン</button>
           <div id="error" class="error"></div>
         </form>
+        __GOOGLE_AUTH_SECTION__
         <div class="link">
           <a href="/forgot-password">パスワードを忘れた場合</a>
         </div>
@@ -502,6 +560,23 @@ export const HTML_LOGIN = `
 
     loadAnnouncement();
 
+    function applyAuthErrorFromQuery() {
+      const errorDiv = document.getElementById('error');
+      const code = new URLSearchParams(window.location.search).get('error');
+      const messages = {
+        google_not_configured: 'Googleログインは現在利用できません',
+        google_invalid_state: 'Googleログインのセッションが無効です。もう一度お試しください',
+        google_access_denied: 'Googleログインがキャンセルされました',
+        google_email_unverified: 'Googleアカウントの確認済みメールアドレスが必要です',
+        google_email_conflict: 'このメールアドレスは別のGoogleアカウントに紐付いています',
+        google_account_limit: 'アカウント作成の上限に達しています',
+        google_login_failed: 'Googleログインに失敗しました',
+      };
+      if (code && messages[code]) {
+        errorDiv.textContent = messages[code];
+      }
+    }
+
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('email').value;
@@ -525,6 +600,8 @@ export const HTML_LOGIN = `
         errorDiv.textContent = 'エラーが発生しました';
       }
     });
+
+    applyAuthErrorFromQuery();
   </script>
 </body>
 </html>
@@ -593,6 +670,62 @@ export const HTML_REGISTER = `
       margin-top: 20px;
       font-size: 14px;
     }
+    .oauth-divider {
+      position: relative;
+      margin: 24px 0 16px;
+      text-align: center;
+      color: #657786;
+      font-size: 13px;
+    }
+    .oauth-divider::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: #e1e8ed;
+    }
+    .oauth-divider span {
+      position: relative;
+      background: white;
+      padding: 0 12px;
+    }
+    .google-auth-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 16px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+      color: #333;
+      font-size: 15px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    .google-auth-button:hover {
+      background: #f8f9fa;
+      border-color: #cfd9de;
+      text-decoration: none;
+    }
+    .google-auth-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #4285f4;
+      color: white;
+      font-weight: 700;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+    }
     a {
       color: #1da1f2;
       text-decoration: none;
@@ -617,12 +750,29 @@ export const HTML_REGISTER = `
       <button type="submit">登録</button>
       <div id="error" class="error"></div>
     </form>
+    __GOOGLE_AUTH_SECTION__
     <div class="link">
       <a href="/login">ログインはこちら</a>
     </div>
   </div>
   <script>
     ${MODAL_SCRIPT}
+    function applyAuthErrorFromQuery() {
+      const errorDiv = document.getElementById('error');
+      const code = new URLSearchParams(window.location.search).get('error');
+      const messages = {
+        google_not_configured: 'Googleログインは現在利用できません',
+        google_invalid_state: 'Googleログインのセッションが無効です。もう一度お試しください',
+        google_access_denied: 'Googleログインがキャンセルされました',
+        google_email_unverified: 'Googleアカウントの確認済みメールアドレスが必要です',
+        google_email_conflict: 'このメールアドレスは別のGoogleアカウントに紐付いています',
+        google_account_limit: 'アカウント作成の上限に達しています',
+        google_login_failed: 'Googleログインに失敗しました',
+      };
+      if (code && messages[code]) {
+        errorDiv.textContent = messages[code];
+      }
+    }
     document.getElementById('registerForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('email').value;
@@ -646,6 +796,7 @@ export const HTML_REGISTER = `
         errorDiv.textContent = 'エラーが発生しました';
       }
     });
+    applyAuthErrorFromQuery();
   </script>
 </body>
 </html>
@@ -1016,14 +1167,15 @@ export const HTML_SETTINGS = `
     <!-- 右カラム: パスワード変更 / アカウント削除 -->
     <div class="right-column">
       <div class="card">
-      <h2>パスワード変更</h2>
+      <h2 id="passwordCardTitle">パスワード変更</h2>
+      <p class="info" id="passwordCardInfo" style="display:none;">Googleログインで作成したアカウントです。パスワードを設定すると、メールアドレスとパスワードでもログインできるようになります。</p>
       <form id="changePasswordForm">
-        <div class="form-group">
-          <label for="currentPassword">現在のパスワード</label>
+        <div class="form-group" id="currentPasswordGroup">
+          <label for="currentPassword" id="currentPasswordLabel">現在のパスワード</label>
           <input type="password" id="currentPassword" required>
         </div>
         <div class="form-group">
-          <label for="newPassword">新しいパスワード</label>
+          <label for="newPassword" id="newPasswordLabel">新しいパスワード</label>
           <input type="password" id="newPassword" required minlength="8">
         </div>
         <div class="form-group">
@@ -1054,10 +1206,10 @@ export const HTML_SETTINGS = `
     <!-- アカウント削除 -->
     <div class="card card-danger">
       <h2>アカウントを削除する</h2>
-      <p class="danger-description">アカウントを削除すると、すべての設定データが削除されます。この操作は取り消せません。</p>
+      <p class="danger-description" id="deleteAccountDescription">アカウントを削除すると、すべての設定データが削除されます。この操作は取り消せません。</p>
       <form id="deleteAccountForm">
-        <div class="form-group">
-          <label for="deletePassword">パスワードを入力して確認</label>
+        <div class="form-group" id="deletePasswordGroup">
+          <label for="deletePassword" id="deletePasswordLabel">パスワードを入力して確認</label>
           <input type="password" id="deletePassword" required>
         </div>
         <div class="actions">
@@ -1069,6 +1221,50 @@ export const HTML_SETTINGS = `
     </div>
   </div>
   <script>
+    function updateAuthMethodUi(data) {
+      const hasPasswordAuth = data.passwordAuthEnabled !== false;
+      const hasGoogleAuth = data.hasGoogleAuth === true;
+
+      const passwordCardTitle = document.getElementById('passwordCardTitle');
+      const passwordCardInfo = document.getElementById('passwordCardInfo');
+      const currentPasswordGroup = document.getElementById('currentPasswordGroup');
+      const currentPasswordInput = document.getElementById('currentPassword');
+      const newPasswordLabel = document.getElementById('newPasswordLabel');
+      const passwordSubmitButton = document.querySelector('#changePasswordForm button[type="submit"]');
+      const deleteAccountDescription = document.getElementById('deleteAccountDescription');
+      const deletePasswordGroup = document.getElementById('deletePasswordGroup');
+      const deletePasswordInput = document.getElementById('deletePassword');
+      const deletePasswordLabel = document.getElementById('deletePasswordLabel');
+
+      if (!hasPasswordAuth && hasGoogleAuth) {
+        passwordCardTitle.textContent = 'パスワード設定';
+        passwordCardInfo.style.display = 'block';
+        currentPasswordGroup.style.display = 'none';
+        currentPasswordInput.required = false;
+        currentPasswordInput.value = '';
+        newPasswordLabel.textContent = '設定するパスワード';
+        passwordSubmitButton.textContent = 'パスワードを設定';
+
+        deleteAccountDescription.textContent = 'Googleログインのアカウントです。削除すると、すべての設定データが削除されます。この操作は取り消せません。';
+        deletePasswordGroup.style.display = 'none';
+        deletePasswordInput.required = false;
+        deletePasswordInput.value = '';
+        deletePasswordLabel.textContent = 'パスワード';
+      } else {
+        passwordCardTitle.textContent = 'パスワード変更';
+        passwordCardInfo.style.display = 'none';
+        currentPasswordGroup.style.display = '';
+        currentPasswordInput.required = true;
+        newPasswordLabel.textContent = '新しいパスワード';
+        passwordSubmitButton.textContent = 'パスワードを変更';
+
+        deleteAccountDescription.textContent = 'アカウントを削除すると、すべての設定データが削除されます。この操作は取り消せません。';
+        deletePasswordGroup.style.display = '';
+        deletePasswordInput.required = true;
+        deletePasswordLabel.textContent = 'パスワードを入力して確認';
+      }
+    }
+
     // 設定読み込み
     async function loadSettings() {
       try {
@@ -1092,6 +1288,7 @@ export const HTML_SETTINGS = `
         } else {
           warningDiv.style.display = 'none';
         }
+        updateAuthMethodUi(data);
         
         // Misskey.ioのWebhook URLは全ユーザー向け。管理者には追加で管理機能と他Webhook設定を表示
         if (data.isAdmin) {
@@ -1522,13 +1719,18 @@ export const HTML_SETTINGS = `
         const data = await res.json();
         if (data.success) {
           messageDiv.className = 'success';
-          messageDiv.textContent = 'パスワードを変更しました';
+          messageDiv.textContent = data.passwordCreated ? 'パスワードを設定しました' : 'パスワードを変更しました';
           document.getElementById('changePasswordForm').reset();
+          loadSettings();
         } else {
           messageDiv.className = 'error';
-          messageDiv.textContent = data.error === 'Current password is incorrect'
-            ? '現在のパスワードが正しくありません'
-            : (data.error || 'パスワードの変更に失敗しました');
+          if (data.error === 'Current password is incorrect') {
+            messageDiv.textContent = '現在のパスワードが正しくありません';
+          } else if (data.error === 'Current password is required') {
+            messageDiv.textContent = '現在のパスワードを入力してください';
+          } else {
+            messageDiv.textContent = data.error || 'パスワードの変更に失敗しました';
+          }
         }
       } catch (err) {
         messageDiv.className = 'error';
