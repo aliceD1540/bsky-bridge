@@ -342,7 +342,7 @@ export async function getSettings(env, userId) {
 // 公開用設定取得（トークン有無のみ、値は含まない）
 export async function getPublicSettings(env, userId) {
   const userRow = await env.DB.prepare(`
-    SELECT email, email_verified
+    SELECT email, email_verified, password_auth_enabled, google_sub
     FROM users
     WHERE id = ?
   `)
@@ -384,6 +384,8 @@ export async function getPublicSettings(env, userId) {
       userId,
       email: userRow?.email || '',
       emailVerified: userRow ? (userRow.email_verified === 1) : false,
+      passwordAuthEnabled: userRow ? (userRow.password_auth_enabled === 1) : true,
+      hasGoogleAuth: !!(userRow?.google_sub),
       isAdmin,
       sourcePlatform: 'bluesky',
       blueskyHandle: null,
@@ -410,6 +412,8 @@ export async function getPublicSettings(env, userId) {
     userId,
     email: userRow?.email || '',
     emailVerified: userRow ? (userRow.email_verified === 1) : false,
+    passwordAuthEnabled: userRow ? (userRow.password_auth_enabled === 1) : true,
+    hasGoogleAuth: !!(userRow?.google_sub),
     isAdmin,
     sourcePlatform: row.source_platform || 'bluesky',
     blueskyHandle: row.bluesky_handle,
