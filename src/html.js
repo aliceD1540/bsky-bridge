@@ -257,6 +257,12 @@ export const HTML_INDEX = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bluesky Bridge</title>
+  <link rel="icon" href="https://r2.project-grimoire.dev/site/img/favicon.ico" type="image/x-icon">
+  <meta property="og:title" content="Bluesky Bridge">
+  <meta property="og:description" content="Bluesky・Threads・Misskey 対応クロスポストツール">
+  <meta property="og:image" content="https://r2.project-grimoire.dev/site/img/bsky-bridge-ogp.jpg">
+  <meta property="og:url" content="https://bsky-bridge.project-grimoire.dev/">
+  <meta property="og:type" content="website">
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -319,6 +325,12 @@ export const HTML_LOGIN = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ログイン - Bluesky Bridge</title>
+  <link rel="icon" href="https://r2.project-grimoire.dev/site/img/favicon.ico" type="image/x-icon">
+  <meta property="og:title" content="Bluesky Bridge">
+  <meta property="og:description" content="Bluesky・Threads・Misskey 対応クロスポストツール">
+  <meta property="og:image" content="https://r2.project-grimoire.dev/site/img/bsky-bridge-ogp.jpg">
+  <meta property="og:url" content="https://bsky-bridge.project-grimoire.dev/">
+  <meta property="og:type" content="website">
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -614,6 +626,12 @@ export const HTML_REGISTER = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>新規登録 - Bluesky Bridge</title>
+  <link rel="icon" href="https://r2.project-grimoire.dev/site/img/favicon.ico" type="image/x-icon">
+  <meta property="og:title" content="Bluesky Bridge">
+  <meta property="og:description" content="Bluesky・Threads・Misskey 対応クロスポストツール">
+  <meta property="og:image" content="https://r2.project-grimoire.dev/site/img/bsky-bridge-ogp.jpg">
+  <meta property="og:url" content="https://bsky-bridge.project-grimoire.dev/">
+  <meta property="og:type" content="website">
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -809,6 +827,12 @@ export const HTML_SETTINGS = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>投稿設定 - Bluesky Bridge</title>
+  <link rel="icon" href="https://r2.project-grimoire.dev/site/img/favicon.ico" type="image/x-icon">
+  <meta property="og:title" content="Bluesky Bridge">
+  <meta property="og:description" content="Bluesky・Threads・Misskey 対応クロスポストツール">
+  <meta property="og:image" content="https://r2.project-grimoire.dev/site/img/bsky-bridge-ogp.jpg">
+  <meta property="og:url" content="https://bsky-bridge.project-grimoire.dev/">
+  <meta property="og:type" content="website">
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -1783,6 +1807,12 @@ export const HTML_VERIFY_EMAIL = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>メール確認 - Bluesky Bridge</title>
+  <link rel="icon" href="https://r2.project-grimoire.dev/site/img/favicon.ico" type="image/x-icon">
+  <meta property="og:title" content="Bluesky Bridge">
+  <meta property="og:description" content="Bluesky・Threads・Misskey 対応クロスポストツール">
+  <meta property="og:image" content="https://r2.project-grimoire.dev/site/img/bsky-bridge-ogp.jpg">
+  <meta property="og:url" content="https://bsky-bridge.project-grimoire.dev/">
+  <meta property="og:type" content="website">
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -1877,6 +1907,12 @@ export const HTML_FORGOT_PASSWORD = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>パスワードリセット - Bluesky Bridge</title>
+  <link rel="icon" href="https://r2.project-grimoire.dev/site/img/favicon.ico" type="image/x-icon">
+  <meta property="og:title" content="Bluesky Bridge">
+  <meta property="og:description" content="Bluesky・Threads・Misskey 対応クロスポストツール">
+  <meta property="og:image" content="https://r2.project-grimoire.dev/site/img/bsky-bridge-ogp.jpg">
+  <meta property="og:url" content="https://bsky-bridge.project-grimoire.dev/">
+  <meta property="og:type" content="website">
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -2003,6 +2039,12 @@ export const HTML_RESET_PASSWORD = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>パスワードリセット - Bluesky Bridge</title>
+  <link rel="icon" href="https://r2.project-grimoire.dev/site/img/favicon.ico" type="image/x-icon">
+  <meta property="og:title" content="Bluesky Bridge">
+  <meta property="og:description" content="Bluesky・Threads・Misskey 対応クロスポストツール">
+  <meta property="og:image" content="https://r2.project-grimoire.dev/site/img/bsky-bridge-ogp.jpg">
+  <meta property="og:url" content="https://bsky-bridge.project-grimoire.dev/">
+  <meta property="og:type" content="website">
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
