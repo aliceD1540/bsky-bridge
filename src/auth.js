@@ -348,8 +348,11 @@ export async function deleteAccount(env, sessionToken, password) {
     }
   }
 
-  // user_settings は ON DELETE CASCADE で自動削除される
-  await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id).run();
+  // user_settings は ON DELETE CASCADE で自動削除されるが、last_checked は外部キーがないため明示的に削除する
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM last_checked WHERE user_id = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
+  ]);
 
   await revokeAllSessions(env, user.id);
 
