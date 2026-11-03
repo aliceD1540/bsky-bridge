@@ -518,6 +518,22 @@ export async function findUserByThreadsUserId(env, threadsUserId) {
   return row?.user_id ?? null;
 }
 
+// 指定のThreadsユーザーIDを、keepUserId 以外のユーザーから連携ごと外す
+export async function unlinkThreadsUserFromOthers(env, threadsUserId, keepUserId) {
+  if (!threadsUserId) return;
+  await env.DB.prepare(`
+    UPDATE user_settings SET
+      threads_user_id = NULL,
+      threads_token_encrypted = NULL,
+      threads_token_iv = NULL,
+      threads_token_expires_at = NULL,
+      updated_at = ?
+    WHERE threads_user_id = ? AND user_id != ?
+  `)
+    .bind(new Date().toISOString(), threadsUserId, keepUserId)
+    .run();
+}
+
 // webhookToken でbsky-bridgeのユーザーIDを検索（Threads Webhook GET 検証用）
 export async function findUserByWebhookToken(env, webhookToken) {
   const row = await env.DB.prepare(

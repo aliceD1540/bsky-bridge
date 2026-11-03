@@ -1,6 +1,6 @@
 // 認証ハンドラー
 
-import { hashPassword, verifyPassword, verifySha256Password } from './crypto.js';
+import { hashPassword, verifyPassword, verifySha256Password, hashToken } from './crypto.js';
 import { sendVerificationEmail, sendPasswordResetEmail, isEmailVerificationEnabled, EmailDailyLimitError } from './emailService.js';
 
 // セッショントークン生成
@@ -15,6 +15,17 @@ function generateToken() {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_MAX_LENGTH = 256;
+
+// 新しく設定するパスワードの検証（画面側の minlength はAPI直叩きで回避できるためサーバーでも確認する）
+function validateNewPassword(password) {
+  if (typeof password !== 'string' || password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
+    return { success: false, error: `パスワードは${PASSWORD_MIN_LENGTH}文字以上${PASSWORD_MAX_LENGTH}文字以内で入力してください` };
+  }
+  return null;
 }
 
 async function ensureAccountCapacity(env) {
@@ -40,10 +51,28 @@ async function createSession(env, userId, email) {
   return sessionToken;
 }
 
+// ユーザーの全セッションをKVから削除（user_session:userId:* を列挙）。exceptToken のセッションは残す
+async function revokeAllSessions(env, userId, exceptToken = null) {
+  const sessions = await env.KV.list({ prefix: `user_session:${userId}:` });
+  await Promise.all(
+    sessions.keys.map(async ({ name }) => {
+      const token = name.replace(`user_session:${userId}:`, '');
+      if (exceptToken && token === exceptToken) return;
+      await env.KV.delete(`session:${token}`);
+      await env.KV.delete(name);
+    })
+  );
+}
+
 // ユーザー登録
 export async function register(env, email, password) {
   if (!email || !password) {
     return { success: false, error: 'Email and password are required' };
+  }
+
+  const passwordError = validateNewPassword(password);
+  if (passwordError) {
+    return passwordError;
   }
 
   const capacityError = await ensureAccountCapacity(env);
@@ -82,7 +111,7 @@ export async function register(env, email, password) {
   const result = await env.DB.prepare(
     'INSERT INTO users (email, password_hash, password_salt, password_hash_version, email_verified, email_verification_token, email_verification_expires_at, password_auth_enabled, created_at) VALUES (?, ?, ?, 2, ?, ?, ?, 1, ?)'
   )
-    .bind(email, passwordHash, passwordSalt, emailVerified, emailVerificationToken, emailVerificationExpiresAt, now)
+    .bind(email, passwordHash, passwordSalt, emailVerified, emailVerificationToken && await hashToken(emailVerificationToken), emailVerificationExpiresAt, now)
     .run();
 
   const userId = result.meta.last_row_id;
@@ -160,7 +189,7 @@ export async function loginWithGoogle(env, profile) {
 
   if (!user) {
     const existingByEmail = await env.DB.prepare(
-      'SELECT id, email, google_sub FROM users WHERE email = ?'
+      'SELECT id, email, google_sub, email_verified, password_auth_enabled FROM users WHERE email = ?'
     )
       .bind(profile.email)
       .first();
@@ -170,11 +199,24 @@ export async function loginWithGoogle(env, profile) {
         return { success: false, error: 'This email address is already linked to another Google account' };
       }
 
-      await env.DB.prepare(
-        'UPDATE users SET google_sub = ?, email_verified = 1 WHERE id = ?'
-      )
-        .bind(profile.sub, existingByEmail.id)
-        .run();
+      // メール所有が確認されていないパスワードアカウントは、第三者が先回りして登録した可能性がある。
+      // Googleで所有が確認できた時点でパスワードログインと既存セッションを無効化し、乗っ取りを防ぐ。
+      // （パスワードは設定画面またはパスワードリセットから再設定できる）
+      const ownershipUnproven = existingByEmail.email_verified !== 1 || !isEmailVerificationEnabled(env);
+      if (ownershipUnproven && existingByEmail.password_auth_enabled === 1) {
+        await env.DB.prepare(
+          'UPDATE users SET google_sub = ?, email_verified = 1, password_auth_enabled = 0, email_verification_token = NULL, email_verification_expires_at = NULL, password_reset_token = NULL, password_reset_expires_at = NULL WHERE id = ?'
+        )
+          .bind(profile.sub, existingByEmail.id)
+          .run();
+        await revokeAllSessions(env, existingByEmail.id);
+      } else {
+        await env.DB.prepare(
+          'UPDATE users SET google_sub = ?, email_verified = 1 WHERE id = ?'
+        )
+          .bind(profile.sub, existingByEmail.id)
+          .run();
+      }
 
       user = { id: existingByEmail.id, email: existingByEmail.email, google_sub: profile.sub };
     } else {
@@ -225,6 +267,11 @@ export async function changePassword(env, sessionToken, currentPassword, newPass
     return { success: false, error: 'New password is required' };
   }
 
+  const passwordError = validateNewPassword(newPassword);
+  if (passwordError) {
+    return passwordError;
+  }
+
   const session = await verifySession(env, sessionToken);
   if (!session) {
     return { success: false, error: 'Unauthorized' };
@@ -245,6 +292,7 @@ export async function changePassword(env, sessionToken, currentPassword, newPass
     await env.DB.prepare(
       'UPDATE users SET password_hash = ?, password_salt = ?, password_hash_version = 2, password_auth_enabled = 1 WHERE id = ?'
     ).bind(newHash, newSalt, user.id).run();
+    await revokeAllSessions(env, user.id, sessionToken);
 
     return { success: true, passwordCreated: true };
   }
@@ -264,6 +312,8 @@ export async function changePassword(env, sessionToken, currentPassword, newPass
   await env.DB.prepare(
     'UPDATE users SET password_hash = ?, password_salt = ?, password_hash_version = 2 WHERE id = ?'
   ).bind(newHash, newSalt, user.id).run();
+  // 操作中の端末以外はログアウトさせる（盗まれたセッションを追い出す）
+  await revokeAllSessions(env, user.id, sessionToken);
 
   return { success: true };
 }
@@ -301,15 +351,7 @@ export async function deleteAccount(env, sessionToken, password) {
   // user_settings は ON DELETE CASCADE で自動削除される
   await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id).run();
 
-  // 全セッションをKVから削除（user_session:userId:* を列挙）
-  const sessions = await env.KV.list({ prefix: `user_session:${user.id}:` });
-  await Promise.all(
-    sessions.keys.map(async ({ name }) => {
-      const token = name.replace(`user_session:${user.id}:`, '');
-      await env.KV.delete(`session:${token}`);
-      await env.KV.delete(name);
-    })
-  );
+  await revokeAllSessions(env, user.id);
 
   return { success: true };
 }
@@ -341,7 +383,7 @@ export async function verifyEmail(env, token) {
   const user = await env.DB.prepare(
     'SELECT id, email, email_verification_token, email_verification_expires_at FROM users WHERE email_verification_token = ?'
   )
-    .bind(token)
+    .bind(await hashToken(token))
     .first();
 
   if (!user) {
@@ -385,7 +427,7 @@ export async function requestPasswordReset(env, email) {
   await env.DB.prepare(
     'UPDATE users SET password_reset_token = ?, password_reset_expires_at = ? WHERE id = ?'
   )
-    .bind(token, expiresAt.toISOString(), user.id)
+    .bind(await hashToken(token), expiresAt.toISOString(), user.id)
     .run();
 
   try {
@@ -407,10 +449,15 @@ export async function resetPassword(env, token, newPassword) {
     return { success: false, error: 'Token and new password are required' };
   }
 
+  const passwordError = validateNewPassword(newPassword);
+  if (passwordError) {
+    return passwordError;
+  }
+
   const user = await env.DB.prepare(
     'SELECT id, password_reset_token, password_reset_expires_at FROM users WHERE password_reset_token = ?'
   )
-    .bind(token)
+    .bind(await hashToken(token))
     .first();
 
   if (!user) {
@@ -431,6 +478,8 @@ export async function resetPassword(env, token, newPassword) {
   )
     .bind(newHash, newSalt, user.id)
     .run();
+  // リセットはパスワードを失った（または漏れた）状況で行うため、全端末をログアウトさせる
+  await revokeAllSessions(env, user.id);
 
   return { success: true };
 }

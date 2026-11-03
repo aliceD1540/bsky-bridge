@@ -245,9 +245,11 @@ mixi2は「自動投稿できるのはBotアカウントのみ」という制約
 
 1. [Meta for Developers](https://developers.facebook.com/) でアプリの「Threadsの設定」→「Webhooks」を開く
 2. 以下を設定：
-   - **コールバックURL**: `https://<your-worker>.workers.dev/api/webhook/threads/{userId}?token={webhookToken}`
+   - **コールバックURL**: `https://<your-worker>.workers.dev/api/webhook/threads`
    - **確認トークン**: webhookToken と同じ値
 3. フィールドで `replies` を購読
+
+受信したイベントは `X-Hub-Signature-256` ヘッダーを `THREADS_APP_SECRET` で検証し、署名が一致しないリクエストは 401 で拒否します。`THREADS_APP_SECRET` が未設定の場合、Webhook は動作しません。
 
 #### mixi2（転記先）のWebhook設定
 
