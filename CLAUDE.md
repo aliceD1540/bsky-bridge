@@ -12,7 +12,7 @@ Bluesky・Misskey.io・Threads・mixi2 間でポストを自動転記するマ�
 ## コマンド
 
 ```bash
-npx wrangler dev --config wrangler.local.toml   # ローカル実行（package.json の dev スクリプトはファイル名が誤っている）
+npm run dev                                      # ローカル実行（wrangler.local.toml を使用）
 npx wrangler d1 migrations apply bsky-bridge     # マイグレーション適用（ローカルは --local）
 for f in src/*.js; do node --check "$f"; done    # 構文チェック（自動テストは未整備のため、編集後は必ず実行）
 ```
