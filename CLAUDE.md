@@ -17,7 +17,7 @@ npx wrangler d1 migrations apply bsky-bridge     # マイグレーション適�
 for f in src/*.js; do node --check "$f"; done    # 構文チェック（自動テストは未整備のため、編集後は必ず実行）
 ```
 
-デプロイ（`npm run deploy`）は本番に反映されるので、明示的に頼まれない限り実行しない。
+デプロイ（`npx wrangler deploy`）は本番に反映されるので、明示的に頼まれない限り実行しない。
 
 ## 実装上の注意
 
@@ -48,9 +48,11 @@ for f in src/*.js; do node --check "$f"; done    # 構文チェック（自動�
 3. PR の URL を伝え、ユーザーのマージを待つ。待つ間は Monitor ツールで `gh pr view <番号> --json state` を30秒ほどの間隔で確認する
    - `MERGED` になったら手順4へ進む
    - `CLOSED`（マージせずにクローズ）になったら、デプロイせずに終了する
-4. `release` をチェックアウトして `git pull` し、そのコードでデプロイする
+4. リモートの最新版を取り直し、そのコードでデプロイする
+   - `git fetch origin` → `git switch release` → `git reset --hard origin/release` の順で実行する。ローカルの `release` にしかないコミットや変更は破棄してよい（`release` は直接コミットしないため、本番に出すのは常に `origin/release` の内容）
+   - `git log --oneline -1` が PR のマージコミットであることを確認する
    - 新しいマイグレーションがあれば、先に `npx wrangler d1 migrations apply bsky-bridge --remote` を実行する
-   - `npm run deploy` を実行し、結果（成否と、出力された Version ID）を報告する
+   - `npx wrangler deploy` を実行し、結果（成否と、出力された Version ID）を報告する。`wrangler` は `package.json` の依存に含まれておらず `node_modules` もないため、`npm run deploy` は `wrangler: not found` で失敗する。必ず `npx` 経由で実行する
    - 終わったら元のブランチに戻す
 
 ## ドキュメント・コミット
