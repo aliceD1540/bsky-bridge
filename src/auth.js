@@ -40,12 +40,13 @@ async function createSession(env, userId, email) {
   return sessionToken;
 }
 
-// ユーザーの全セッションをKVから削除（user_session:userId:* を列挙）
-async function revokeAllSessions(env, userId) {
+// ユーザーの全セッションをKVから削除（user_session:userId:* を列挙）。exceptToken のセッションは残す
+async function revokeAllSessions(env, userId, exceptToken = null) {
   const sessions = await env.KV.list({ prefix: `user_session:${userId}:` });
   await Promise.all(
     sessions.keys.map(async ({ name }) => {
       const token = name.replace(`user_session:${userId}:`, '');
+      if (exceptToken && token === exceptToken) return;
       await env.KV.delete(`session:${token}`);
       await env.KV.delete(name);
     })
@@ -270,6 +271,7 @@ export async function changePassword(env, sessionToken, currentPassword, newPass
     await env.DB.prepare(
       'UPDATE users SET password_hash = ?, password_salt = ?, password_hash_version = 2, password_auth_enabled = 1 WHERE id = ?'
     ).bind(newHash, newSalt, user.id).run();
+    await revokeAllSessions(env, user.id, sessionToken);
 
     return { success: true, passwordCreated: true };
   }
@@ -289,6 +291,8 @@ export async function changePassword(env, sessionToken, currentPassword, newPass
   await env.DB.prepare(
     'UPDATE users SET password_hash = ?, password_salt = ?, password_hash_version = 2 WHERE id = ?'
   ).bind(newHash, newSalt, user.id).run();
+  // 操作中の端末以外はログアウトさせる（盗まれたセッションを追い出す）
+  await revokeAllSessions(env, user.id, sessionToken);
 
   return { success: true };
 }
@@ -448,6 +452,8 @@ export async function resetPassword(env, token, newPassword) {
   )
     .bind(newHash, newSalt, user.id)
     .run();
+  // リセットはパスワードを失った（または漏れた）状況で行うため、全端末をログアウトさせる
+  await revokeAllSessions(env, user.id);
 
   return { success: true };
 }

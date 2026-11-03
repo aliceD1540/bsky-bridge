@@ -6,7 +6,7 @@ import { fetchMixi2AccessToken } from './mixi2Client.js';
 import { isPosted, markPosted, isPostedToPlatform, markPostedToPlatform, getLastPostedAt, setLastPostedAt } from './kvStore.js';
 import { formatPost, truncateForDest } from './formatPost.js';
 import { register, login, loginWithGoogle, logout, verifySession, changePassword, deleteAccount, verifyEmail, requestPasswordReset, resetPassword } from './auth.js';
-import { saveSettings, getSettings, getPublicSettings, getAllUserSettings, findUserByThreadsUserId, findUserByWebhookToken } from './settings.js';
+import { saveSettings, getSettings, getPublicSettings, getAllUserSettings, findUserByThreadsUserId, findUserByWebhookToken, unlinkThreadsUserFromOthers } from './settings.js';
 import { SOURCE_ADAPTERS, DEST_ADAPTERS, getDestinationsForUser } from './adapters.js';
 import { HTML_INDEX, HTML_LOGIN, HTML_REGISTER, HTML_SETTINGS, HTML_VERIFY_EMAIL, HTML_FORGOT_PASSWORD, HTML_RESET_PASSWORD } from './html.js';
 import { serveProxiedImage } from './mediaProxy.js';
@@ -160,14 +160,20 @@ async function authenticateWebhook(env, userId, token) {  if (!userId || !token)
   return settings;
 }
 
-// IPごとの試行回数をKVで管理（5回失敗で15分ロックアウト）
-async function checkRateLimit(env, key) {
+// キーごとの試行回数をKVで管理（既定: 5回で15分ロックアウト）
+async function checkRateLimit(env, key, { limit = 5, windowSeconds = 15 * 60 } = {}) {
   const kvKey = `rate_limit:${key}`;
   const raw = await env.KV.get(kvKey);
   const attempts = raw ? parseInt(raw, 10) : 0;
-  if (attempts >= 5) return false;
-  await env.KV.put(kvKey, String(attempts + 1), { expirationTtl: 15 * 60 });
+  if (attempts >= limit) return false;
+  await env.KV.put(kvKey, String(attempts + 1), { expirationTtl: windowSeconds });
   return true;
+}
+
+function tooManyAttemptsResponse() {
+  return new Response(JSON.stringify({ error: 'Too many attempts. Please try again later.' }), {
+    status: 429, headers: { 'Content-Type': 'application/json' },
+  });
 }
 
 async function resetRateLimit(env, key) {
@@ -178,14 +184,63 @@ function buildSessionCookie(token) {
   return `session=${token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=2592000`;
 }
 
+function getCookie(request, name) {
+  const cookie = request.headers.get('Cookie');
+  if (!cookie) return null;
+  const match = cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`));
+  return match ? match[1] : null;
+}
+
 function getSessionToken(request) {
   // httpOnly Cookie を優先し、後方互換としてBearerトークンにも対応
-  const cookie = request.headers.get('Cookie');
-  if (cookie) {
-    const match = cookie.match(/(?:^|;\s*)session=([^;]+)/);
-    if (match) return match[1];
+  return getCookie(request, 'session') || request.headers.get('Authorization')?.replace('Bearer ', '') || null;
+}
+
+// Threads OAuth の state をブラウザにも保持し、コールバックで照合する（別人のstateで連携させられるのを防ぐ）
+// コールバックは threads.net からのトップレベル遷移なので SameSite=Lax にする
+const THREADS_OAUTH_STATE_COOKIE = 'threads_oauth_state';
+
+function buildThreadsStateCookie(state) {
+  return `${THREADS_OAUTH_STATE_COOKIE}=${state}; HttpOnly; Secure; SameSite=Lax; Path=/auth/threads/callback; Max-Age=600`;
+}
+
+function redirectFromThreadsCallback(location) {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: location.toString(),
+      'Set-Cookie': `${THREADS_OAUTH_STATE_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/auth/threads/callback; Max-Age=0`,
+    },
+  });
+}
+
+// /api/settings で受け付けるキーと型（threadsToken・threadsUserId・各種有効期限はサーバー内部でのみ設定する）
+const SETTINGS_INPUT_TYPES = {
+  sourcePlatform: 'string',
+  blueskyHandle: 'string',
+  blueskyAppPassword: 'string',
+  misskeyToken: 'string',
+  mixi2ClientId: 'string',
+  mixi2ClientSecret: 'string',
+  mixi2AccessToken: 'null', // クリアのみ許可（値は clientId/clientSecret からサーバーで取得する）
+  mixi2WebhookPublicKey: 'string',
+  notifyReplyMisskey: 'boolean',
+  notifyReplyThreads: 'boolean',
+  notifyReplyMixi2: 'boolean',
+};
+
+// 許可キーのみを取り出す。空文字は「未指定（既存値を維持）」として除外し、型が合わなければ null を返す
+function pickSettingsInput(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const picked = {};
+  for (const [key, type] of Object.entries(SETTINGS_INPUT_TYPES)) {
+    if (!(key in raw)) continue;
+    const value = raw[key];
+    if (value === undefined || value === '') continue;
+    if (value !== null && (type === 'null' || typeof value !== type)) return null;
+    picked[key] = value;
   }
-  return request.headers.get('Authorization')?.replace('Bearer ', '') || null;
+  return picked;
 }
 
 function buildGoogleRedirectUri(request, env) {
@@ -369,9 +424,7 @@ async function handleRequest(request, env) {
   if (path === '/api/register' && request.method === 'POST') {
     const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
     if (!await checkRateLimit(env, `register:${ip}`)) {
-      return new Response(JSON.stringify({ error: 'Too many attempts. Please try again later.' }), {
-        status: 429, headers: { 'Content-Type': 'application/json' },
-      });
+      return tooManyAttemptsResponse();
     }
     const { email, password } = await request.json();
     const result = await register(env, email, password);
@@ -385,9 +438,7 @@ async function handleRequest(request, env) {
   if (path === '/api/login' && request.method === 'POST') {
     const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
     if (!await checkRateLimit(env, `login:${ip}`)) {
-      return new Response(JSON.stringify({ error: 'Too many attempts. Please try again later.' }), {
-        status: 429, headers: { 'Content-Type': 'application/json' },
-      });
+      return tooManyAttemptsResponse();
     }
     // 不正なリクエストも試行回数にカウントしたまま 400 を返す（カウンタのリセットに悪用させない）
     let body;
@@ -429,10 +480,16 @@ async function handleRequest(request, env) {
     });
   }
 
+  // 盗まれたセッションからの現在パスワード総当たりを防ぐため、ユーザー単位で試行回数を制限する
   if (path === '/api/change-password' && request.method === 'POST') {
     const sessionToken = getSessionToken(request);
+    const session = await verifySession(env, sessionToken);
+    if (session && !await checkRateLimit(env, `change_password:${session.userId}`)) {
+      return tooManyAttemptsResponse();
+    }
     const { currentPassword, newPassword } = await request.json();
     const result = await changePassword(env, sessionToken, currentPassword, newPassword);
+    if (result.success) await resetRateLimit(env, `change_password:${session.userId}`);
     return new Response(JSON.stringify(result), {
       status: result.success ? 200 : (result.error === 'Unauthorized' ? 401 : 400),
       headers: { 'Content-Type': 'application/json' },
@@ -441,6 +498,10 @@ async function handleRequest(request, env) {
 
   if (path === '/api/delete-account' && request.method === 'POST') {
     const sessionToken = getSessionToken(request);
+    const session = await verifySession(env, sessionToken);
+    if (session && !await checkRateLimit(env, `delete_account:${session.userId}`)) {
+      return tooManyAttemptsResponse();
+    }
     const { password } = await request.json();
     const result = await deleteAccount(env, sessionToken, password);
     return new Response(JSON.stringify(result), {
@@ -450,6 +511,10 @@ async function handleRequest(request, env) {
   }
 
   if (path === '/api/verify-email' && request.method === 'POST') {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    if (!await checkRateLimit(env, `verify_email:${ip}`, { limit: 10 })) {
+      return tooManyAttemptsResponse();
+    }
     const { token } = await request.json();
     const result = await verifyEmail(env, token);
     return new Response(JSON.stringify(result), {
@@ -459,7 +524,19 @@ async function handleRequest(request, env) {
   }
 
   if (path === '/api/forgot-password' && request.method === 'POST') {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    if (!await checkRateLimit(env, `forgot_password:${ip}`)) {
+      return tooManyAttemptsResponse();
+    }
     const { email } = await request.json();
+    // 同一アドレスへの送信はアカウントの有無に関係なく1時間3回まで。
+    // 超過時も成功を返し、上限の状態や第三者による送信を外部から観測できないようにする
+    if (typeof email === 'string' && email
+      && !await checkRateLimit(env, `forgot_password_email:${email.trim().toLowerCase()}`, { limit: 3, windowSeconds: 60 * 60 })) {
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     const result = await requestPasswordReset(env, email);
     return new Response(JSON.stringify(result), {
       status: result.success ? 200 : 400,
@@ -468,6 +545,10 @@ async function handleRequest(request, env) {
   }
 
   if (path === '/api/reset-password' && request.method === 'POST') {
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    if (!await checkRateLimit(env, `reset_password:${ip}`, { limit: 10 })) {
+      return tooManyAttemptsResponse();
+    }
     const { token, password } = await request.json();
     const result = await resetPassword(env, token, password);
     return new Response(JSON.stringify(result), {
@@ -850,7 +931,13 @@ async function handleRequest(request, env) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    const settings = await request.json();
+    const settings = pickSettingsInput(await request.json());
+    if (!settings) {
+      return new Response(JSON.stringify({ error: '設定の形式が正しくありません。' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
     // 転記元変更チェック用に保存前の設定を取得
     const existingBeforeSave = await getPublicSettings(env, session.userId);
@@ -896,6 +983,12 @@ async function handleRequest(request, env) {
     // mixi2 は転記元として使用不可（なりすましが容易なため）
     if (settings.sourcePlatform === 'mixi2') {
       return new Response(JSON.stringify({ error: 'mixi2は転記元として使用できません。' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (settings.sourcePlatform && !Object.hasOwn(SOURCE_ADAPTERS, settings.sourcePlatform)) {
+      return new Response(JSON.stringify({ error: '転記元の指定が正しくありません。' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -965,7 +1058,10 @@ async function handleRequest(request, env) {
     });
 
     return new Response(JSON.stringify({ authUrl }), {
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Set-Cookie': buildThreadsStateCookie(state),
+      },
     });
   }
 
@@ -979,14 +1075,20 @@ async function handleRequest(request, env) {
 
     if (error || !code || !state) {
       settingsUrl.searchParams.set('threads_error', error || 'invalid_callback');
-      return Response.redirect(settingsUrl.toString(), 302);
+      return redirectFromThreadsCallback(settingsUrl);
+    }
+
+    // 連携を開始したブラウザと同じかを確認（他人が発行したstateのURLを踏まされた場合は拒否）
+    if (!constantTimeEquals(getCookie(request, THREADS_OAUTH_STATE_COOKIE) || '', state)) {
+      settingsUrl.searchParams.set('threads_error', 'invalid_state');
+      return redirectFromThreadsCallback(settingsUrl);
     }
 
     // stateを検証してuserIdを取得
     const userId = await env.KV.get(`oauth_state:${state}`);
     if (!userId) {
       settingsUrl.searchParams.set('threads_error', 'invalid_state');
-      return Response.redirect(settingsUrl.toString(), 302);
+      return redirectFromThreadsCallback(settingsUrl);
     }
 
     // 使用済みstateを即座に削除（リプレイ攻撃防止）
@@ -1005,6 +1107,8 @@ async function handleRequest(request, env) {
       });
 
       const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+      // 同じThreadsアカウントが別ユーザーに紐づいていれば外す（通知の行き先を一意にする）
+      await unlinkThreadsUserFromOthers(env, String(threadsUserId), Number(userId));
       await saveSettings(env, Number(userId), {
         threadsToken: longLivedToken,
         threadsTokenExpiresAt: expiresAt,
@@ -1017,7 +1121,7 @@ async function handleRequest(request, env) {
       settingsUrl.searchParams.set('threads_error', 'token_exchange_failed');
     }
 
-    return Response.redirect(settingsUrl.toString(), 302);
+    return redirectFromThreadsCallback(settingsUrl);
   }
 
   // Threads 連携解除
@@ -1030,9 +1134,11 @@ async function handleRequest(request, env) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+    // threadsUserId も消して、解除後にリプライ通知が届き続けないようにする
     await saveSettings(env, session.userId, {
       threadsToken: null,
       threadsTokenExpiresAt: null,
+      threadsUserId: null,
     });
     return new Response(JSON.stringify({ success: true }), {
       headers: { 'Content-Type': 'application/json' },
