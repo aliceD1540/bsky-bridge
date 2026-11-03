@@ -411,9 +411,12 @@ async function handleRequest(request, env) {
   const path = url.pathname;
 
   // CSRF対策：POSTリクエストのOriginを検証（ブラウザからの正規リクエストのみ許可）
-  if (request.method === 'POST' && path.startsWith('/api/')) {
+  // SameSite Cookie に加えた多層防御として、Originヘッダーが無い場合も拒否する。
+  // Webhook はサーバー間通信でOriginが付かないため対象外（各Webhookはトークン・署名で認証する）
+  const isWebhook = path.startsWith('/api/webhook/');
+  if (request.method === 'POST' && (path.startsWith('/api/') || path.startsWith('/auth/')) && !isWebhook) {
     const origin = request.headers.get('Origin');
-    if (origin && env.APP_URL && origin !== env.APP_URL) {
+    if (origin !== (env.APP_URL || url.origin)) {
       return new Response(JSON.stringify({ error: 'Forbidden' }), {
         status: 403, headers: { 'Content-Type': 'application/json' },
       });
@@ -1179,7 +1182,15 @@ function serveHTML(env, path) {
   }
   
   return new Response(html, {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      // クリックジャッキング対策（iframe埋め込みを禁止）
+      'X-Frame-Options': 'DENY',
+      'Content-Security-Policy': "frame-ancestors 'none'",
+      'X-Content-Type-Options': 'nosniff',
+      // URLに含まれる確認・リセット用トークンを外部へ送らない
+      'Referrer-Policy': 'no-referrer',
+    },
   });
 }
 
