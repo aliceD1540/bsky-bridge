@@ -13,6 +13,15 @@ export async function markPosted(env, postId, createdAt) {
   await env.KV.put(`posted:${postId}`, createdAt, { expirationTtl: POSTED_TTL_SECONDS });
 }
 
+// 宛先プラットフォームごとの投稿済みフラグ（部分失敗時のリトライで重複投稿を防ぐ）
+export async function isPostedToPlatform(env, destPlatform, postId) {
+  return (await env.KV.get(`posted:dest:${destPlatform}:${postId}`)) !== null;
+}
+
+export async function markPostedToPlatform(env, destPlatform, postId, createdAt) {
+  await env.KV.put(`posted:dest:${destPlatform}:${postId}`, createdAt, { expirationTtl: POSTED_TTL_SECONDS });
+}
+
 // D1: ユーザー・プラットフォームごとの前回チェック時刻管理
 export async function getLastPostedAt(env, userId, platform = 'bluesky') {
   const row = await env.DB.prepare(

@@ -108,6 +108,12 @@ export async function verifyPassword(password, hash, salt) {
   return timingSafeEqual(computed, hash);
 }
 
+// メール確認・パスワードリセット用トークンのDB保存用ハッシュ
+// トークン自体が256bitの乱数なので、ソルトやストレッチングは不要
+export async function hashToken(token) {
+  return bufToHex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token)));
+}
+
 // 旧SHA-256ハッシュの検証（マイグレーション用）
 export async function verifySha256Password(password, hash) {
   const encoder = new TextEncoder();

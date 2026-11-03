@@ -9,6 +9,14 @@ const FOOTER_HTML = `
     <span style="display:block;margin-top:8px">&copy; <a href="https://project-grimoire.dev/" target="_blank" rel="noopener">project-grimoire.dev</a></span>
   </div>
 `;
+const COMMON_HEAD_HTML = `
+  <link rel="icon" href="https://r2.project-grimoire.dev/site/img/favicon.ico" type="image/x-icon">
+  <meta property="og:title" content="Bluesky Bridge">
+  <meta property="og:description" content="Bluesky・Threads・Misskey 対応クロスポストツール">
+  <meta property="og:image" content="https://r2.project-grimoire.dev/site/img/bsky-bridge-ogp.jpg">
+  <meta property="og:url" content="https://bsky-bridge.project-grimoire.dev/">
+  <meta property="og:type" content="website">
+`;
 const MODAL_STYLES = `
   .modal-overlay {
     display: none;
@@ -95,7 +103,7 @@ const MODAL_HTML = `
 
       <h3>セットアップ手順</h3>
       <ol style="color:#555;line-height:1.8;font-size:14px;padding-left:1.4em">
-        <li>アカウントを作成してログインします。</li>
+        <li>メールアドレスとパスワードでアカウントを作成するか、Googleアカウントでログインします。</li>
         <li>設定画面「転記元指定」で転記元にするプラットフォームを選択し、「保存」します。</li>
         <li>設定画面「認証情報」で、使用するプラットフォームの認証情報を入力します。
           <ul style="margin-top:4px">
@@ -104,6 +112,7 @@ const MODAL_HTML = `
             <li><b>Threads</b>：「Threadsに接続」ボタンから OAuth 認証を完了します（完了時に自動保存）。</li>
           </ul>
         </li>
+        <li>（オプション）設定画面「リプライ通知設定」で、転記先でリプライがあった場合に通知を受け取るプラットフォームを選択できます。</li>
         <li>設定完了後、5分以内に転記が開始されます。転記元以外の認証済みプラットフォームがすべて転記先になります。認証情報が未設定のプラットフォームは転記先から除外されます（設定画面に赤文字で表示されます）。</li>
       </ol>
 
@@ -187,27 +196,46 @@ const MODAL_HTML = `
       <h3>収集する情報</h3>
       <p>本サービスは以下の情報を収集・保存します。</p>
       <ul>
-        <li>メールアドレス（アカウント登録時）</li>
-        <li>パスワード（PBKDF2+saltによりハッシュ化して保管）</li>
-        <li>Bluesky のユーザーハンドルおよびアプリパスワード</li>
-        <li>Threads の長期アクセストークンおよび有効期限</li>
+        <li>メールアドレス（アカウント登録時、またはGoogleログイン利用時）</li>
+        <li>パスワード（PBKDF2+saltによりハッシュ化して保管。Googleログインのみを利用する場合は、ユーザーが後から設定するまで実用パスワードは保存しません）</li>
+        <li>Googleアカウントの識別子（Googleログイン利用時のアカウント連携用。氏名・プロフィール画像は保存しません）</li>
+        <li>Bluesky のユーザーハンドル、およびアプリパスワード（Bluesky を転記先にする場合のみ）</li>
+        <li>Threads の長期アクセストークン・有効期限・ユーザーID</li>
         <li>Misskey.io のアクセストークン</li>
+        <li>転記元プラットフォーム、リプライ通知の設定、リプライ通知用の Webhook 認証トークン</li>
+        <li>転記元ごとの前回チェック時刻、本日の転記回数</li>
       </ul>
-      <p>Bluesky のアプリパスワード・Threads のアクセストークン・Misskey.io のアクセストークンは AES-GCM により暗号化して保管します。</p>
-      <p>なお、メール認証・パスワードリセットのためにメールアドレスを Brevo（メール配信サービス）へ送信します。Brevo のプライバシーポリシーについては <a href="https://www.brevo.com/legal/privacypolicy/" target="_blank" rel="noopener">こちら</a> をご確認ください。</p>
+      <p>Bluesky のアプリパスワード・Threads のアクセストークン・Misskey.io のアクセストークンは AES-GCM により暗号化して保管します。メール確認・パスワードリセット用のトークンはハッシュ化して保管します。</p>
+      <p>このほか、処理のために以下の情報を一時的に保持します。</p>
+      <ul>
+        <li>ログイン状態を保持するためのセッション情報（最長30日）</li>
+        <li>不正アクセス防止のためのレート制限に用いる IP アドレス・メールアドレス（最長1時間）</li>
+        <li>重複投稿を防ぐための転記済みポストのID（7日間）</li>
+        <li>API 呼び出しを減らすための転記元アカウント情報のキャッシュ（24時間）</li>
+        <li>Threads へ画像を転記する際の中継用画像データ（5分間）</li>
+      </ul>
 
       <h3>情報の利用目的</h3>
       <p>収集した情報は以下の目的にのみ使用します。</p>
       <ul>
-        <li>ユーザー認証およびセッション管理</li>
-        <li>Bluesky の新着ポストを Threads・Misskey.io へ転記する処理</li>
+        <li>ユーザー認証およびセッション管理（Googleログインを含む）</li>
+        <li>メールアドレスの確認、パスワードリセット</li>
+        <li>転記元（Bluesky・Misskey.io・Threads）の新着ポストを、認証情報を設定した他のプラットフォームへ転記する処理</li>
+        <li>転記先でのリプライを転記元のアカウントへ通知する処理（リプライ通知を有効にした場合のみ）</li>
+        <li>不正アクセスや過負荷の防止</li>
       </ul>
 
-      <h3>第三者への提供</h3>
-      <p>収集した個人情報を第三者に販売・提供・開示することはありません。ただし、転記処理の性質上、投稿内容は各 SNS プラットフォームの API を通じて送信されます。</p>
+      <h3>第三者への提供・外部サービスへの送信</h3>
+      <p>収集した個人情報を第三者に販売・提供・開示することはありません。ただし、サービスの提供に必要な範囲で、以下の外部サービスへ情報を送信します。</p>
+      <ul>
+        <li><b>各 SNS プラットフォーム（Bluesky・Misskey.io・Threads）</b>：転記処理の性質上、投稿内容（テキスト・画像）と認証情報を各 API へ送信します。</li>
+        <li><b>Google</b>：Googleログイン利用時に、認証のため Google と通信し、メールアドレスとアカウント識別子を受け取ります。</li>
+        <li><b>Brevo（メール配信サービス）</b>：メール認証・パスワードリセットのため、メールアドレスを送信します。Brevo のプライバシーポリシーについては <a href="https://www.brevo.com/legal/privacypolicy/" target="_blank" rel="noopener">こちら</a> をご確認ください。</li>
+      </ul>
+      <p>リプライ通知は本サービスの通知用アカウントから、転記元のアカウント宛てのメンション付き投稿として送信されます。この投稿にはリプライのあったポストの URL が含まれ、各プラットフォームの公開範囲に従って他のユーザーからも閲覧できる場合があります。</p>
 
       <h3>情報の保管・削除</h3>
-      <p>アカウントを削除すると、登録されたすべての情報（メールアドレス・SNS 設定・投稿履歴）が削除されます。</p>
+      <p>アカウントを削除すると、メールアドレス・パスワード・SNS 認証情報・各種設定が削除され、すべてのセッションが無効になります。上記の一時的に保持する情報は、それぞれの保持期間が過ぎると自動的に削除されます。</p>
 
       <h3>アクセスログ</h3>
       <p>本サービスは Cloudflare Workers 上で動作しており、リクエストに関する情報が Cloudflare のインフラにより処理されます。Cloudflare のプライバシーポリシーについては <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">こちら</a> をご確認ください。</p>
@@ -255,6 +283,7 @@ export const HTML_INDEX = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Bluesky Bridge</title>
+  ${COMMON_HEAD_HTML}
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -317,6 +346,7 @@ export const HTML_LOGIN = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ログイン - Bluesky Bridge</title>
+  ${COMMON_HEAD_HTML}
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -380,6 +410,62 @@ export const HTML_LOGIN = `
       text-align: center;
       margin-top: 20px;
       font-size: 14px;
+    }
+    .oauth-divider {
+      position: relative;
+      margin: 24px 0 16px;
+      text-align: center;
+      color: #657786;
+      font-size: 13px;
+    }
+    .oauth-divider::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: #e1e8ed;
+    }
+    .oauth-divider span {
+      position: relative;
+      background: white;
+      padding: 0 12px;
+    }
+    .google-auth-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 16px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+      color: #333;
+      font-size: 15px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    .google-auth-button:hover {
+      background: #f8f9fa;
+      border-color: #cfd9de;
+      text-decoration: none;
+    }
+    .google-auth-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #4285f4;
+      color: white;
+      font-weight: 700;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
     }
     a {
       color: #1da1f2;
@@ -445,6 +531,7 @@ export const HTML_LOGIN = `
           <button type="submit">ログイン</button>
           <div id="error" class="error"></div>
         </form>
+        __GOOGLE_AUTH_SECTION__
         <div class="link">
           <a href="/forgot-password">パスワードを忘れた場合</a>
         </div>
@@ -468,14 +555,21 @@ export const HTML_LOGIN = `
       let html = text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
       html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
       html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
       html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
       html = html.replace(/\\*\\*\\*(.+?)\\*\\*\\*/g, '<strong><em>$1</em></strong>');
       html = html.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
       html = html.replace(/\\*(.+?)\\*/g, '<em>$1</em>');
-      html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      html = html.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, function (match, label, href) {
+        // http(s) 以外（javascript: など）はリンクにせずテキストのみ残す
+        return /^https?:\\/\\//i.test(href)
+          ? '<a href="' + href + '" target="_blank" rel="noopener noreferrer">' + label + '</a>'
+          : label;
+      });
       const blocks = html.split(/\\n\\n+/);
       html = blocks.map(b => {
         b = b.trim();
@@ -501,6 +595,23 @@ export const HTML_LOGIN = `
 
     loadAnnouncement();
 
+    function applyAuthErrorFromQuery() {
+      const errorDiv = document.getElementById('error');
+      const code = new URLSearchParams(window.location.search).get('error');
+      const messages = {
+        google_not_configured: 'Googleログインは現在利用できません',
+        google_invalid_state: 'Googleログインのセッションが無効です。もう一度お試しください',
+        google_access_denied: 'Googleログインがキャンセルされました',
+        google_email_unverified: 'Googleアカウントの確認済みメールアドレスが必要です',
+        google_email_conflict: 'このメールアドレスは別のGoogleアカウントに紐付いています',
+        google_account_limit: 'アカウント作成の上限に達しています',
+        google_login_failed: 'Googleログインに失敗しました',
+      };
+      if (code && messages[code]) {
+        errorDiv.textContent = messages[code];
+      }
+    }
+
     document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('email').value;
@@ -524,6 +635,8 @@ export const HTML_LOGIN = `
         errorDiv.textContent = 'エラーが発生しました';
       }
     });
+
+    applyAuthErrorFromQuery();
   </script>
 </body>
 </html>
@@ -536,6 +649,7 @@ export const HTML_REGISTER = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>新規登録 - Bluesky Bridge</title>
+  ${COMMON_HEAD_HTML}
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -592,6 +706,62 @@ export const HTML_REGISTER = `
       margin-top: 20px;
       font-size: 14px;
     }
+    .oauth-divider {
+      position: relative;
+      margin: 24px 0 16px;
+      text-align: center;
+      color: #657786;
+      font-size: 13px;
+    }
+    .oauth-divider::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: #e1e8ed;
+    }
+    .oauth-divider span {
+      position: relative;
+      background: white;
+      padding: 0 12px;
+    }
+    .google-auth-button {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      box-sizing: border-box;
+      padding: 12px 16px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+      color: #333;
+      font-size: 15px;
+      font-weight: 500;
+      text-decoration: none;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    .google-auth-button:hover {
+      background: #f8f9fa;
+      border-color: #cfd9de;
+      text-decoration: none;
+    }
+    .google-auth-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #4285f4;
+      color: white;
+      font-weight: 700;
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+    }
     a {
       color: #1da1f2;
       text-decoration: none;
@@ -616,12 +786,29 @@ export const HTML_REGISTER = `
       <button type="submit">登録</button>
       <div id="error" class="error"></div>
     </form>
+    __GOOGLE_AUTH_SECTION__
     <div class="link">
       <a href="/login">ログインはこちら</a>
     </div>
   </div>
   <script>
     ${MODAL_SCRIPT}
+    function applyAuthErrorFromQuery() {
+      const errorDiv = document.getElementById('error');
+      const code = new URLSearchParams(window.location.search).get('error');
+      const messages = {
+        google_not_configured: 'Googleログインは現在利用できません',
+        google_invalid_state: 'Googleログインのセッションが無効です。もう一度お試しください',
+        google_access_denied: 'Googleログインがキャンセルされました',
+        google_email_unverified: 'Googleアカウントの確認済みメールアドレスが必要です',
+        google_email_conflict: 'このメールアドレスは別のGoogleアカウントに紐付いています',
+        google_account_limit: 'アカウント作成の上限に達しています',
+        google_login_failed: 'Googleログインに失敗しました',
+      };
+      if (code && messages[code]) {
+        errorDiv.textContent = messages[code];
+      }
+    }
     document.getElementById('registerForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('email').value;
@@ -645,6 +832,7 @@ export const HTML_REGISTER = `
         errorDiv.textContent = 'エラーが発生しました';
       }
     });
+    applyAuthErrorFromQuery();
   </script>
 </body>
 </html>
@@ -657,6 +845,7 @@ export const HTML_SETTINGS = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>投稿設定 - Bluesky Bridge</title>
+  ${COMMON_HEAD_HTML}
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -870,6 +1059,7 @@ export const HTML_SETTINGS = `
             <label class="radio-label"><input type="radio" name="sourcePlatform" value="bluesky" id="srcBluesky"><span>Bluesky</span><span class="text-danger" id="srcBlueskyWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
             <label class="radio-label"><input type="radio" name="sourcePlatform" value="misskey" id="srcMisskey"><span>Misskey.io</span><span class="text-danger" id="srcMisskeyWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
             <label class="radio-label"><input type="radio" name="sourcePlatform" value="threads" id="srcThreads"><span>Threads</span><span class="text-danger" id="srcThreadsWarning" style="display:none; margin-left: 8px;">認証情報未設定</span></label>
+
           </div>
           <div class="actions">
             <button type="submit">保存</button>
@@ -885,11 +1075,11 @@ export const HTML_SETTINGS = `
         <h3>Bluesky <span class="text-danger" id="blueskyStatusWarning" style="display:none;">認証情報未設定</span></h3>
         <div class="form-group">
           <label for="blueskyHandle">アカウント名</label>
-          <input type="text" id="blueskyHandle" placeholder="example.bsky.social">
+          <input type="text" id="blueskyHandle" placeholder="example.bsky.social" autocomplete="off">
         </div>
         <div class="form-group">
           <label for="blueskyAppPassword">アプリパスワード</label>
-          <input type="password" id="blueskyAppPassword" placeholder="変更しない場合は空欄のまま">
+          <input type="password" id="blueskyAppPassword" placeholder="変更しない場合は空欄のまま" autocomplete="off">
           <div class="info">Blueskyの設定からアプリパスワードを生成してください。転記元・転記先どちらで使用する場合も設定が必要です。</div>
         </div>
         <div id="blueskyDeleteBtnContainer" style="display:none;">
@@ -899,7 +1089,7 @@ export const HTML_SETTINGS = `
         <h3>Misskey.io <span class="text-danger" id="misskeyStatusWarning" style="display:none;">認証情報未設定</span></h3>
         <div class="form-group">
           <label for="misskeyToken">アクセストークン</label>
-          <input type="password" id="misskeyToken" placeholder="変更しない場合は空欄のまま">
+          <input type="password" id="misskeyToken" placeholder="変更しない場合は空欄のまま" autocomplete="off">
           <div class="info">Misskey.ioの設定から「アカウントの情報を見る」「ドライブを操作する」「ノートを作成・削除する」の権限を持つアクセストークンを生成してください。</div>
         </div>
         <div id="misskeyDeleteBtnContainer" style="display:none;">
@@ -920,24 +1110,109 @@ export const HTML_SETTINGS = `
           </div>
         </div>
 
+        <div id="mixi2Section" style="display:none;">
+          <h3>mixi2（管理者のみ） <span class="text-danger" id="mixi2StatusWarning" style="display:none;">認証情報未設定</span></h3>
+          <div class="form-group">
+            <label for="mixi2ClientId">Botアカウント クライアントID</label>
+            <input type="password" id="mixi2ClientId" placeholder="変更しない場合は空欄のまま" autocomplete="off">
+            <div class="info">投稿用BotアカウントのOAuth 2.0クライアントIDを入力してください。</div>
+          </div>
+          <div class="form-group">
+            <label for="mixi2ClientSecret">Botアカウント クライアントシークレット</label>
+            <input type="password" id="mixi2ClientSecret" placeholder="変更しない場合は空欄のまま" autocomplete="off">
+            <div class="info">投稿用BotアカウントのOAuth 2.0クライアントシークレットを入力してください。</div>
+          </div>
+          <div id="mixi2DeleteBtnContainer" style="display:none;">
+            <button type="button" id="mixi2DeleteBtn" class="btn-danger">認証情報削除</button>
+          </div>
+        </div>
+
         <div class="actions">
           <button type="button" id="saveCredentialsBtn">保存</button>
         </div>
         <div id="credentialsMessage"></div>
+      </div>
+
+      <div class="card">
+        <h2>リプライ通知設定</h2>
+        <p class="info">転記先でリプライがあった場合、転記元アカウントに通知を送信できます。各プラットフォームのWebhook設定に以下のURLを登録してください。</p>
+        
+        <div class="form-group">
+          <label class="radio-label" style="cursor:auto;">
+            <input type="checkbox" id="notifyReplyMisskey" style="width:auto;">
+            <span>Misskey.ioのリプライを通知</span>
+          </label>
+        </div>
+        
+        <div class="form-group">
+          <label class="radio-label" style="cursor:auto;">
+            <input type="checkbox" id="notifyReplyThreads" style="width:auto;">
+            <span>Threadsのリプライを通知</span>
+          </label>
+        </div>
+        
+        <div class="form-group" id="notifyReplyMixi2Container" style="display:none;">
+          <label class="radio-label" style="cursor:auto;">
+            <input type="checkbox" id="notifyReplyMixi2" style="width:auto;">
+            <span>mixi2のリプライを通知</span>
+          </label>
+        </div>
+
+        <div class="form-group" id="webhookInfoSection" style="display:none;">
+          <h3 style="font-size:1rem; margin-bottom:8px;">Webhook設定情報</h3>
+
+          <label>Misskey.io Webhook URL</label>
+          <div style="display:flex; gap:8px; margin-bottom:4px;">
+            <input type="text" id="webhookUrlMisskey" readonly onclick="this.select()" style="flex:1;">
+          </div>
+          <div class="info" style="margin-bottom:12px;">Misskey.io のWebhook設定で上記URLを登録してください。シークレットは任意ですが、設定する場合は下記のトークンを使用してください。</div>
+
+          <div id="threadsWebhookSection" style="display:none;">
+            <label>Threads Webhook URL</label>
+            <div style="display:flex; gap:8px; margin-bottom:4px;">
+              <input type="text" id="webhookUrlThreads" readonly onclick="this.select()" style="flex:1;">
+            </div>
+            <div class="info" style="margin-bottom:12px;">Meta Developer Console のWebhook設定でコールバックURLに上記URLを、確認トークンに下記のトークンを設定してください。</div>
+          </div>
+
+          <div id="mixi2WebhookSection" style="display:none;">
+            <label>mixi2 Webhook URL</label>
+            <div style="display:flex; gap:8px; margin-bottom:4px;">
+              <input type="text" id="webhookUrlMixi2" readonly onclick="this.select()" style="flex:1;">
+            </div>
+            <div class="info" style="margin-bottom:12px;">mixi2 のWebhook設定で上記URLを登録してください。</div>
+          </div>
+
+          <div id="mixi2PublicKeySection" style="display:none;">
+            <label for="mixi2WebhookPublicKey">mixi2 署名検証用公開鍵（Base64）</label>
+            <textarea id="mixi2WebhookPublicKey" rows="3" placeholder="mixi2のWebhook設定で共有された署名検証用公開鍵を貼り付けてください（Base64形式）" style="font-family:monospace; font-size:0.85rem;"></textarea>
+            <div class="info" style="margin-bottom:12px;">mixi2 のWebhook設定を行うと署名検証用の公開鍵が発行されます。これを入力するとWebhookの署名を検証できます（管理者のみ）。</div>
+          </div>
+
+          <label for="webhookToken">Webhook認証トークン（共通）</label>
+          <input type="text" id="webhookToken" readonly onclick="this.select()">
+          <div class="info">このトークンはすべてのプラットフォームで共通です。外部に漏らさないようにしてください。</div>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="saveNotificationBtn">保存</button>
+        </div>
+        <div id="notificationMessage"></div>
       </div>
     </div>
 
     <!-- 右カラム: パスワード変更 / アカウント削除 -->
     <div class="right-column">
       <div class="card">
-      <h2>パスワード変更</h2>
+      <h2 id="passwordCardTitle">パスワード変更</h2>
+      <p class="info" id="passwordCardInfo" style="display:none;">Googleログインで作成したアカウントです。パスワードを設定すると、メールアドレスとパスワードでもログインできるようになります。</p>
       <form id="changePasswordForm">
-        <div class="form-group">
-          <label for="currentPassword">現在のパスワード</label>
+        <div class="form-group" id="currentPasswordGroup">
+          <label for="currentPassword" id="currentPasswordLabel">現在のパスワード</label>
           <input type="password" id="currentPassword" required>
         </div>
         <div class="form-group">
-          <label for="newPassword">新しいパスワード</label>
+          <label for="newPassword" id="newPasswordLabel">新しいパスワード</label>
           <input type="password" id="newPassword" required minlength="8">
         </div>
         <div class="form-group">
@@ -968,10 +1243,10 @@ export const HTML_SETTINGS = `
     <!-- アカウント削除 -->
     <div class="card card-danger">
       <h2>アカウントを削除する</h2>
-      <p class="danger-description">アカウントを削除すると、すべての設定データが削除されます。この操作は取り消せません。</p>
+      <p class="danger-description" id="deleteAccountDescription">アカウントを削除すると、すべての設定データが削除されます。この操作は取り消せません。</p>
       <form id="deleteAccountForm">
-        <div class="form-group">
-          <label for="deletePassword">パスワードを入力して確認</label>
+        <div class="form-group" id="deletePasswordGroup">
+          <label for="deletePassword" id="deletePasswordLabel">パスワードを入力して確認</label>
           <input type="password" id="deletePassword" required>
         </div>
         <div class="actions">
@@ -983,6 +1258,50 @@ export const HTML_SETTINGS = `
     </div>
   </div>
   <script>
+    function updateAuthMethodUi(data) {
+      const hasPasswordAuth = data.passwordAuthEnabled !== false;
+      const hasGoogleAuth = data.hasGoogleAuth === true;
+
+      const passwordCardTitle = document.getElementById('passwordCardTitle');
+      const passwordCardInfo = document.getElementById('passwordCardInfo');
+      const currentPasswordGroup = document.getElementById('currentPasswordGroup');
+      const currentPasswordInput = document.getElementById('currentPassword');
+      const newPasswordLabel = document.getElementById('newPasswordLabel');
+      const passwordSubmitButton = document.querySelector('#changePasswordForm button[type="submit"]');
+      const deleteAccountDescription = document.getElementById('deleteAccountDescription');
+      const deletePasswordGroup = document.getElementById('deletePasswordGroup');
+      const deletePasswordInput = document.getElementById('deletePassword');
+      const deletePasswordLabel = document.getElementById('deletePasswordLabel');
+
+      if (!hasPasswordAuth && hasGoogleAuth) {
+        passwordCardTitle.textContent = 'パスワード設定';
+        passwordCardInfo.style.display = 'block';
+        currentPasswordGroup.style.display = 'none';
+        currentPasswordInput.required = false;
+        currentPasswordInput.value = '';
+        newPasswordLabel.textContent = '設定するパスワード';
+        passwordSubmitButton.textContent = 'パスワードを設定';
+
+        deleteAccountDescription.textContent = 'Googleログインのアカウントです。削除すると、すべての設定データが削除されます。この操作は取り消せません。';
+        deletePasswordGroup.style.display = 'none';
+        deletePasswordInput.required = false;
+        deletePasswordInput.value = '';
+        deletePasswordLabel.textContent = 'パスワード';
+      } else {
+        passwordCardTitle.textContent = 'パスワード変更';
+        passwordCardInfo.style.display = 'none';
+        currentPasswordGroup.style.display = '';
+        currentPasswordInput.required = true;
+        newPasswordLabel.textContent = '新しいパスワード';
+        passwordSubmitButton.textContent = 'パスワードを変更';
+
+        deleteAccountDescription.textContent = 'アカウントを削除すると、すべての設定データが削除されます。この操作は取り消せません。';
+        deletePasswordGroup.style.display = '';
+        deletePasswordInput.required = true;
+        deletePasswordLabel.textContent = 'パスワードを入力して確認';
+      }
+    }
+
     // 設定読み込み
     async function loadSettings() {
       try {
@@ -1006,11 +1325,25 @@ export const HTML_SETTINGS = `
         } else {
           warningDiv.style.display = 'none';
         }
+        updateAuthMethodUi(data);
         
-        // 管理者の場合はお知らせ編集カードを表示して現在の内容を読み込む
+        // Misskey.ioのWebhook URLは全ユーザー向け。管理者には追加で管理機能と他Webhook設定を表示
         if (data.isAdmin) {
           document.getElementById('announcementEditorCard').style.display = 'block';
+          document.getElementById('mixi2Section').style.display = 'block';
           loadAnnouncement();
+          updateAuthStatus('mixi2', data.hasMixi2Config);
+          if (data.hasMixi2Config) {
+            document.getElementById('mixi2ClientId').placeholder = '設定済み（変更する場合のみ入力）';
+            document.getElementById('mixi2ClientSecret').placeholder = '設定済み（変更する場合のみ入力）';
+          }
+          document.getElementById('notifyReplyMixi2Container').style.display = 'block';
+          document.getElementById('mixi2PublicKeySection').style.display = 'block';
+          document.getElementById('threadsWebhookSection').style.display = 'block';
+          document.getElementById('mixi2WebhookSection').style.display = 'block';
+          if (data.mixi2WebhookPublicKey) {
+            document.getElementById('mixi2WebhookPublicKey').value = data.mixi2WebhookPublicKey;
+          }
         }
         
         if (data.blueskyHandle) {
@@ -1046,6 +1379,21 @@ export const HTML_SETTINGS = `
         }
         
         updateThreadsStatus(data);
+
+        // 通知設定の読み込み
+        document.getElementById('notifyReplyMisskey').checked = data.notifyReplyMisskey || false;
+        document.getElementById('notifyReplyThreads').checked = data.notifyReplyThreads || false;
+        document.getElementById('notifyReplyMixi2').checked = data.notifyReplyMixi2 || false;
+        
+        // Webhook情報の表示（userId と webhookToken が揃っている場合）
+        if (data.userId && data.webhookToken) {
+          const origin = window.location.origin;
+          document.getElementById('webhookUrlMisskey').value = origin + '/api/webhook/misskey/' + data.userId + '?token=' + data.webhookToken;
+          document.getElementById('webhookUrlThreads').value = origin + '/api/webhook/threads';
+          document.getElementById('webhookUrlMixi2').value = origin + '/api/webhook/mixi2/' + data.userId + '?token=' + data.webhookToken;
+          document.getElementById('webhookToken').value = data.webhookToken;
+          document.getElementById('webhookInfoSection').style.display = 'block';
+        }
       } catch (err) {
         console.error('設定の読み込みに失敗しました', err);
       }
@@ -1187,6 +1535,38 @@ export const HTML_SETTINGS = `
       }
     });
 
+    // mixi2 認証情報削除ボタン（管理者のみ）
+    const mixi2DeleteBtn = document.getElementById('mixi2DeleteBtn');
+    if (mixi2DeleteBtn) {
+      mixi2DeleteBtn.addEventListener('click', async () => {
+        if (!confirm('mixi2の認証情報を削除しますか？')) return;
+        try {
+          const res = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+              mixi2ClientId: null,
+              mixi2ClientSecret: null,
+              mixi2AccessToken: null,
+            }),
+          });
+          if (res.ok) {
+            document.getElementById('mixi2ClientId').value = '';
+            document.getElementById('mixi2ClientSecret').value = '';
+            document.getElementById('mixi2ClientId').placeholder = '変更しない場合は空欄のまま';
+            document.getElementById('mixi2ClientSecret').placeholder = '変更しない場合は空欄のまま';
+            updateAuthStatus('mixi2', false);
+            const messageDiv = document.getElementById('credentialsMessage');
+            messageDiv.className = 'success';
+            messageDiv.textContent = 'mixi2の認証情報を削除しました';
+          }
+        } catch (err) {
+          console.error('mixi2認証情報削除に失敗しました', err);
+        }
+      });
+    }
+
     // OAuth認証後のメッセージ表示
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('threads_connected') === '1') {
@@ -1263,6 +1643,45 @@ export const HTML_SETTINGS = `
       }
     });
 
+    // 通知設定の保存
+    document.getElementById('saveNotificationBtn').addEventListener('click', async () => {
+      const messageDiv = document.getElementById('notificationMessage');
+      
+      const settings = {
+        notifyReplyMisskey: document.getElementById('notifyReplyMisskey').checked,
+        notifyReplyThreads: document.getElementById('notifyReplyThreads').checked,
+        notifyReplyMixi2: document.getElementById('notifyReplyMixi2').checked,
+      };
+
+      // 管理者の場合はmixi2公開鍵も保存
+      const mixi2KeyEl = document.getElementById('mixi2WebhookPublicKey');
+      if (mixi2KeyEl && mixi2KeyEl.closest('[style*="display:none"]') === null) {
+        settings.mixi2WebhookPublicKey = mixi2KeyEl.value.trim() || null;
+      }
+
+      try {
+        const res = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(settings),
+        });
+
+        if (res.status === 401) { window.location.href = '/login'; return; }
+
+        const data = await res.json();
+        messageDiv.className = data.success ? 'success' : 'error';
+        messageDiv.textContent = data.success ? '通知設定を保存しました' : (data.error || '保存に失敗しました');
+        
+        if (data.success) {
+          await loadSettings();
+        }
+      } catch (err) {
+        messageDiv.className = 'error';
+        messageDiv.textContent = 'エラーが発生しました';
+      }
+    });
+
     // 認証情報の保存
     document.getElementById('saveCredentialsBtn').addEventListener('click', async () => {
       const messageDiv = document.getElementById('credentialsMessage');
@@ -1271,6 +1690,8 @@ export const HTML_SETTINGS = `
         blueskyHandle: document.getElementById('blueskyHandle').value,
         blueskyAppPassword: document.getElementById('blueskyAppPassword').value,
         misskeyToken: document.getElementById('misskeyToken').value,
+        mixi2ClientId: document.getElementById('mixi2ClientId').value,
+        mixi2ClientSecret: document.getElementById('mixi2ClientSecret').value,
       };
 
       try {
@@ -1335,13 +1756,18 @@ export const HTML_SETTINGS = `
         const data = await res.json();
         if (data.success) {
           messageDiv.className = 'success';
-          messageDiv.textContent = 'パスワードを変更しました';
+          messageDiv.textContent = data.passwordCreated ? 'パスワードを設定しました' : 'パスワードを変更しました';
           document.getElementById('changePasswordForm').reset();
+          loadSettings();
         } else {
           messageDiv.className = 'error';
-          messageDiv.textContent = data.error === 'Current password is incorrect'
-            ? '現在のパスワードが正しくありません'
-            : (data.error || 'パスワードの変更に失敗しました');
+          if (data.error === 'Current password is incorrect') {
+            messageDiv.textContent = '現在のパスワードが正しくありません';
+          } else if (data.error === 'Current password is required') {
+            messageDiv.textContent = '現在のパスワードを入力してください';
+          } else {
+            messageDiv.textContent = data.error || 'パスワードの変更に失敗しました';
+          }
         }
       } catch (err) {
         messageDiv.className = 'error';
@@ -1394,6 +1820,7 @@ export const HTML_VERIFY_EMAIL = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>メール確認 - Bluesky Bridge</title>
+  ${COMMON_HEAD_HTML}
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -1488,6 +1915,7 @@ export const HTML_FORGOT_PASSWORD = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>パスワードリセット - Bluesky Bridge</title>
+  ${COMMON_HEAD_HTML}
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;
@@ -1614,6 +2042,7 @@ export const HTML_RESET_PASSWORD = `
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>パスワードリセット - Bluesky Bridge</title>
+  ${COMMON_HEAD_HTML}
   <style>
     body {
       font-family: system-ui, -apple-system, sans-serif;

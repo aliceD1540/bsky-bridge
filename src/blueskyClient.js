@@ -4,6 +4,17 @@
 const BLUESKY_API_ENDPOINT = 'https://public.api.bsky.app/xrpc';
 const BLUESKY_AUTH_ENDPOINT = 'https://bsky.social/xrpc';
 
+// ハンドルを DID に解決する（公開API・認証不要）
+export async function resolveBlueskyHandle(handle) {
+  const res = await fetch(`${BLUESKY_AUTH_ENDPOINT}/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(handle)}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Bluesky resolveHandle failed: ${res.status} - ${body}`);
+  }
+  const data = await res.json();
+  return data.did;
+}
+
 // アプリパスワードでログインし、ハンドルの所有確認を行う
 // 認証失敗時は例外をスロー
 export async function verifyBlueskyCredentials(handle, password) {

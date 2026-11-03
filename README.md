@@ -1,17 +1,18 @@
 # bsky-bridge
 
-Bluesky・Misskey.io・Threads のいずれかを転記元として選択し、認証情報を設定した他プラットフォームへ自動転記するサービス（マルチユーザー対応）
+Bluesky・Misskey.io・Threads・mixi2 のいずれかを転記元として選択し、認証情報を設定した他プラットフォームへ自動転記するサービス（マルチユーザー対応）
 
 ## 機能
 
 - 複数ユーザーの登録・管理
-- 転記元プラットフォームの選択（Bluesky / Misskey.io / Threads）
+- 転記元プラットフォームの選択（Bluesky / Misskey.io / Threads / mixi2）
 - 転記元以外の認証済みプラットフォームへ自動転記（5分間隔）
-- ユーザーごとのBluesky・Threads・Misskey.io連携設定
+- ユーザーごとのBluesky・Threads・Misskey.io・mixi2連携設定
 - 各SNS認証情報の暗号化保存
 - メールアドレス確認・パスワードリセット機能（オプション）
 - メンテナンスモード
 - 設定画面でログイン中のメールアドレスと本日の転記回数を表示
+- **リプライ通知機能（Webhook経由で転記先のリプライを転記元に通知）**
 
 ## セットアップ
 
@@ -35,7 +36,7 @@ Bluesky・Misskey.io・Threads のいずれかを転記元として選択し、�
    wrangler queues create bsky-bridge-queue
    ```
 
-5. マスターキー、Threadsアプリ情報、メール設定をCloudflare Secretsに設定
+5. マスターキー、Google / Threadsアプリ情報、メール設定、通知用アカウント情報をCloudflare Secretsに設定
 
    ```bash
    # 256bit (32バイト) のランダムキーを生成
@@ -47,8 +48,19 @@ Bluesky・Misskey.io・Threads のいずれかを転記元として選択し、�
    wrangler secret put THREADS_APP_ID      # Meta for DevelopersのアプリID
    wrangler secret put THREADS_APP_SECRET  # Meta for Developersのアプリシークレット
 
+   # Google OAuthアプリの設定
+   wrangler secret put GOOGLE_CLIENT_ID      # Google Cloud ConsoleのOAuthクライアントID
+   wrangler secret put GOOGLE_CLIENT_SECRET  # Google Cloud ConsoleのOAuthクライアントシークレット
+
    # メール確認機能（オプション）
    wrangler secret put BREVO_API_KEY       # BrevoのAPIキー（メール確認機能を有効化する場合）
+
+   # リプライ通知用アカウント（通知機能を使用する場合）
+   wrangler secret put NOTIFICATION_BLUESKY_HANDLE        # 通知用Blueskyアカウントのハンドル
+   wrangler secret put NOTIFICATION_BLUESKY_APP_PASSWORD  # 通知用Blueskyアカウントのアプリパスワード
+   wrangler secret put NOTIFICATION_MISSKEY_TOKEN         # 通知用Misskey.ioアカウントのAPIトークン
+   wrangler secret put NOTIFICATION_THREADS_TOKEN         # 通知用Threadsアカウントのアクセストークン
+   wrangler secret put NOTIFICATION_MIXI2_ACCESS_TOKEN    # 通知用mixi2アカウントのアクセストークン
    ```
 
 6. `wrangler.toml` の `[vars]` にWorkerのURLとメール設定を設定
@@ -130,14 +142,16 @@ wrangler deploy --var MAINTENANCE_MODE:true
 ## 使い方
 
 1. デプロイ後、WorkerのURLにアクセス
-2. 「新規登録」からメールアドレスとパスワードでアカウントを作成
+2. 「新規登録」からメールアドレスとパスワードでアカウントを作成、または「Googleで登録 / ログイン」からGoogleアカウントでログイン
    - メール確認機能が有効な場合：登録後、確認メールが送信されます。メール内のリンクをクリックして確認を完了してください。
    - メール確認機能が無効な場合：すぐに利用可能です。
+   - Googleログインを使用した場合：Google側で確認済みのメールアドレスでそのまま利用できます。
 3. 自動的に設定画面に遷移するので、以下を設定：
-   - **転記元の選択**: Bluesky・Misskey.io・Threads のいずれかを転記元として選択して保存
+   - **転記元の選択**: Bluesky・Misskey.io・Threads・mixi2（管理者のみ） のいずれかを転記元として選択して保存
    - **Bluesky**: アカウント名（例: `user.bsky.social`）とアプリパスワード（転記元・転記先どちらで使用する場合も設定が必要）
    - **Misskey.io**: APIトークン（オプション）
    - **Threads**: 「Threadsに接続」ボタンからOAuth認証（詳細は下記）
+   - **mixi2（管理者のみ）**: 転記元アカウントID、BotアカウントのクライアントIDとシークレット（詳細は下記）
 4. 設定保存後、5分ごとに自動的に新規ポストをチェックして投稿開始
    - メール確認機能が有効で未確認の場合：メール確認完了後に自動投稿が開始されます
 
@@ -159,12 +173,95 @@ Threads APIを使用するためにはMeta for Developersでアプリを作成�
 9. 取得したアプリIDとシークレットを `wrangler secret` に設定（前述のセットアップ手順参照）
 10. 設定画面の「Threadsに接続」ボタンからOAuth認証を実施
 
+### Google Cloud Consoleの設定（Googleログイン）
+
+1. [Google Cloud Console](https://console.cloud.google.com/)で対象プロジェクトを開く
+2. 「APIとサービス」→「OAuth 同意画面」でアプリ情報を設定
+3. 「認証情報」→「認証情報を作成」→「OAuth クライアント ID」を選択
+4. アプリケーションの種類は「ウェブアプリ」を選択
+5. 承認済みのリダイレクト URI に `https://<your-worker>.workers.dev/auth/google/callback` を追加
+6. 発行されたクライアントIDとクライアントシークレットを `wrangler secret put GOOGLE_CLIENT_ID` / `wrangler secret put GOOGLE_CLIENT_SECRET` で設定
+
+Googleログインでは、確認済みメールアドレスとGoogleアカウントの識別子のみを取得します。既存アカウントと同じメールアドレスでログインした場合は、そのアカウントにGoogleログインが紐付きます。
+
 ### Misskey.ioの設定
 
 1. Misskey.ioにログインし、「設定」→「APIキー」からAPIトークンを作成
 2. 必要な権限: アカウントの情報を見る（`read:account`）、ノートを作成・削除する（`write:notes`）、ドライブを操作する（`write:drive`）
    - `read:account` は `/api/i` で自分のユーザーIDを取得するために必要
 3. 取得したトークンを設定画面の「Misskey.io」欄に入力
+
+### mixi2の設定（管理者のみ）
+
+mixi2は「自動投稿できるのはBotアカウントのみ」という制約があるため、特殊な設定が必要です：
+
+1. mixi2でBotアカウントを作成し、OAuth 2.0のクライアントIDとクライアントシークレットを取得
+2. 設定画面の「mixi2」セクションに以下を入力：
+   - **転記元アカウントID**: 投稿を取得したいmixi2アカウントのユーザーID
+   - **クライアントID**: Botアカウントの OAuth 2.0 クライアント ID
+   - **クライアントシークレット**: Botアカウントの OAuth 2.0 クライアントシークレット
+3. 保存後、BotアカウントがOAuth 2.0で自動的に認証され、指定した転記元アカウントの投稿を転記します
+
+**注意**: mixi2設定は仕組み上なりすましが可能なため、管理者（`ADMIN_EMAIL` で指定されたユーザー）のみが設定可能です。
+
+## リプライ通知機能（Webhook）
+
+転記先のプラットフォームでリプライがあった場合、固定の通知用アカウントから転記元アカウントへメンション付きで通知を送信する機能です。
+
+### 前提：通知用アカウントの準備
+
+通知は転記元ユーザー自身のアカウントではなく、専用の通知用アカウントから送信されます。  
+転記元プラットフォームごとに通知用アカウントを用意し、Secretsに設定してください（[セットアップ](#セットアップ)参照）。
+
+| Secret | 用途 |
+|---|---|
+| `NOTIFICATION_BLUESKY_HANDLE` | 通知用Blueskyアカウントのハンドル |
+| `NOTIFICATION_BLUESKY_APP_PASSWORD` | 通知用Blueskyアカウントのアプリパスワード |
+| `NOTIFICATION_MISSKEY_TOKEN` | 通知用Misskey.ioアカウントのAPIトークン |
+| `NOTIFICATION_THREADS_TOKEN` | 通知用Threadsアカウントのアクセストークン |
+| `NOTIFICATION_MIXI2_ACCESS_TOKEN` | 通知用mixi2アカウントのアクセストークン |
+
+### 通知の仕組み
+
+1. 転記先プラットフォームのWebhookが `/api/webhook/{platform}/{userId}?token={webhookToken}` を呼び出す
+2. ペイロードからリプライのURLを抽出
+3. 転記元プラットフォームの通知用アカウントから、ユーザーへのメンション＋リプライURLを含む投稿を送信
+
+### セットアップ
+
+1. 設定画面の「リプライ通知設定」セクションで、通知を受け取りたいプラットフォームをONにする
+2. 表示されているWebhook URLと認証トークンを各プラットフォームのWebhook設定に登録する
+
+#### Misskey.io（転記先）のWebhook設定
+
+1. Misskey.ioの「設定」→「Webhook」→「+」をクリック
+2. 以下を設定：
+   - **URL**: `https://<your-worker>.workers.dev/api/webhook/misskey/{userId}?token={webhookToken}`
+   - **シークレット**: webhookToken と同じ値（任意）
+   - **通知するイベント**: `reply`・`mention` にチェック
+3. 保存
+
+#### Threads（転記先）のWebhook設定
+
+1. [Meta for Developers](https://developers.facebook.com/) でアプリの「Threadsの設定」→「Webhooks」を開く
+2. 以下を設定：
+   - **コールバックURL**: `https://<your-worker>.workers.dev/api/webhook/threads`
+   - **確認トークン**: webhookToken と同じ値
+3. フィールドで `replies` を購読
+
+受信したイベントは `X-Hub-Signature-256` ヘッダーを `THREADS_APP_SECRET` で検証し、署名が一致しないリクエストは 401 で拒否します。`THREADS_APP_SECRET` が未設定の場合、Webhook は動作しません。
+
+#### mixi2（転記先）のWebhook設定
+
+1. mixi2のBotアカウント設定でWebhookエンドポイントを登録：
+   - **URL**: `https://<your-worker>.workers.dev/api/webhook/mixi2/{userId}?token={webhookToken}`
+2. （オプション）Ed25519公開鍵を設定画面の「mixi2 Webhook公開鍵」欄に設定するとリクエストの署名検証が有効になります
+
+### 注意事項
+
+- 通知用アカウントのSecretが設定されていない場合、通知は送信されません
+- Bluesky通知はメンションファセットとリンクファセットを含む正式なAT Protocolレコードとして投稿されます
+- Misskey.io・Threadsは通知用アカウントからユーザー名をメンションして投稿します
 
 ## 構成
 
@@ -182,6 +279,7 @@ Threads APIを使用するためにはMeta for Developersでアプリを作成�
 - src/kvStore.js: KV/D1管理
 - src/formatPost.js: 投稿整形ロジック
 - src/mediaProxy.js: 画像プロキシ（Threads CDN向け）
+- src/notificationService.js: リプライ通知サービス
 - migrations/: D1マイグレーションファイル
 
 ## セキュリティ
@@ -191,6 +289,7 @@ Threads APIを使用するためにはMeta for Developersでアプリを作成�
 - マスターキーはCloudflare Secretsで管理
 - Threads OAuthのアプリIDとシークレットはCloudflare Secretsで管理
 - Brevo APIキー（メール送信）はCloudflare Secretsで管理
+- リプライ通知用アカウントの認証情報はCloudflare Secretsで管理（ユーザーの認証情報は通知に使用しない）
 - セッショントークンはKVに保存（30日有効）
 - メール確認トークンとパスワードリセットトークンは暗号的に安全なランダム値（各24時間・1時間有効）
 
@@ -200,8 +299,8 @@ Threads APIを使用するためにはMeta for Developersでアプリを作成�
 - マスターキー（MASTER_KEY）は必ずCloudflare Secretsで管理してください
 - Threads OAuthのアプリID（THREADS_APP_ID）とシークレット（THREADS_APP_SECRET）もCloudflare Secretsで管理してください
 - Brevo APIキー（BREVO_API_KEY）を設定する場合は、必ずCloudflare Secretsで管理してください
+- リプライ通知用アカウントの認証情報（`NOTIFICATION_*`）は必ずCloudflare Secretsで管理してください
 - `APP_URL` は `wrangler.toml` の `[vars]` セクションにWorkerの公開URLを設定してください
 - Threads APIは1日250件の投稿制限があります
 - 過去のポストは遡らず、ユーザー登録日時以降のポストのみ処理します
 - メール確認機能を有効化すると、メール未確認のユーザーは自動投稿が無効化されます
-

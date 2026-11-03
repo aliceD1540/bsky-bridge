@@ -1,6 +1,6 @@
 // 認証ハンドラー
 
-import { hashPassword, verifyPassword, verifySha256Password } from './crypto.js';
+import { hashPassword, verifyPassword, verifySha256Password, hashToken } from './crypto.js';
 import { sendVerificationEmail, sendPasswordResetEmail, isEmailVerificationEnabled, EmailDailyLimitError } from './emailService.js';
 
 // セッショントークン生成
@@ -17,19 +17,67 @@ function generateToken() {
   return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_MAX_LENGTH = 256;
+
+// 新しく設定するパスワードの検証（画面側の minlength はAPI直叩きで回避できるためサーバーでも確認する）
+function validateNewPassword(password) {
+  if (typeof password !== 'string' || password.length < PASSWORD_MIN_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
+    return { success: false, error: `パスワードは${PASSWORD_MIN_LENGTH}文字以上${PASSWORD_MAX_LENGTH}文字以内で入力してください` };
+  }
+  return null;
+}
+
+async function ensureAccountCapacity(env) {
+  const maxAccounts = parseInt(env.MAX_ACCOUNTS || '50', 10);
+  const userCountResult = await env.DB.prepare('SELECT COUNT(*) as count FROM users').first();
+  const currentUserCount = userCountResult?.count || 0;
+
+  if (currentUserCount >= maxAccounts) {
+    return { success: false, error: 'アカウント作成の上限に達しています。新規登録を受け付けることができません。' };
+  }
+
+  return null;
+}
+
+async function createSession(env, userId, email) {
+  const sessionToken = generateSessionToken();
+  await env.KV.put(`session:${sessionToken}`, JSON.stringify({ userId, email }), {
+    expirationTtl: 30 * 24 * 60 * 60,
+  });
+  await env.KV.put(`user_session:${userId}:${sessionToken}`, '1', {
+    expirationTtl: 30 * 24 * 60 * 60,
+  });
+  return sessionToken;
+}
+
+// ユーザーの全セッションをKVから削除（user_session:userId:* を列挙）。exceptToken のセッションは残す
+async function revokeAllSessions(env, userId, exceptToken = null) {
+  const sessions = await env.KV.list({ prefix: `user_session:${userId}:` });
+  await Promise.all(
+    sessions.keys.map(async ({ name }) => {
+      const token = name.replace(`user_session:${userId}:`, '');
+      if (exceptToken && token === exceptToken) return;
+      await env.KV.delete(`session:${token}`);
+      await env.KV.delete(name);
+    })
+  );
+}
+
 // ユーザー登録
 export async function register(env, email, password) {
   if (!email || !password) {
     return { success: false, error: 'Email and password are required' };
   }
 
-  // アカウント作成上限チェック
-  const maxAccounts = parseInt(env.MAX_ACCOUNTS || '50', 10);
-  const userCountResult = await env.DB.prepare('SELECT COUNT(*) as count FROM users').first();
-  const currentUserCount = userCountResult?.count || 0;
-  
-  if (currentUserCount >= maxAccounts) {
-    return { success: false, error: 'アカウント作成の上限に達しています。新規登録を受け付けることができません。' };
+  const passwordError = validateNewPassword(password);
+  if (passwordError) {
+    return passwordError;
+  }
+
+  const capacityError = await ensureAccountCapacity(env);
+  if (capacityError) {
+    return capacityError;
   }
 
   // メールアドレスの重複チェック（ユーザー列挙を防ぐため汎用メッセージを返す）
@@ -61,9 +109,9 @@ export async function register(env, email, password) {
 
   // ユーザー作成
   const result = await env.DB.prepare(
-    'INSERT INTO users (email, password_hash, password_salt, password_hash_version, email_verified, email_verification_token, email_verification_expires_at, created_at) VALUES (?, ?, ?, 2, ?, ?, ?, ?)'
+    'INSERT INTO users (email, password_hash, password_salt, password_hash_version, email_verified, email_verification_token, email_verification_expires_at, password_auth_enabled, created_at) VALUES (?, ?, ?, 2, ?, ?, ?, 1, ?)'
   )
-    .bind(email, passwordHash, passwordSalt, emailVerified, emailVerificationToken, emailVerificationExpiresAt, now)
+    .bind(email, passwordHash, passwordSalt, emailVerified, emailVerificationToken && await hashToken(emailVerificationToken), emailVerificationExpiresAt, now)
     .run();
 
   const userId = result.meta.last_row_id;
@@ -81,14 +129,7 @@ export async function register(env, email, password) {
     }
   }
 
-  // セッショントークン生成・KVに保存（userId逆引き用のインデックスも保持）
-  const sessionToken = generateSessionToken();
-  await env.KV.put(`session:${sessionToken}`, JSON.stringify({ userId, email }), {
-    expirationTtl: 30 * 24 * 60 * 60,
-  });
-  await env.KV.put(`user_session:${userId}:${sessionToken}`, '1', {
-    expirationTtl: 30 * 24 * 60 * 60,
-  });
+  const sessionToken = await createSession(env, userId, email);
 
   return { success: true, userId, sessionToken, emailVerificationRequired: emailVerificationEnabled };
 }
@@ -101,12 +142,12 @@ export async function login(env, email, password) {
 
   // ユーザー取得
   const user = await env.DB.prepare(
-    'SELECT id, email, password_hash, password_salt, password_hash_version FROM users WHERE email = ?'
+    'SELECT id, email, password_hash, password_salt, password_hash_version, password_auth_enabled FROM users WHERE email = ?'
   )
     .bind(email)
     .first();
 
-  if (!user) {
+  if (!user || user.password_auth_enabled !== 1) {
     return { success: false, error: 'Invalid email or password' };
   }
 
@@ -129,15 +170,78 @@ export async function login(env, email, password) {
     return { success: false, error: 'Invalid email or password' };
   }
 
-  // セッショントークン生成・KVに保存（userId逆引き用のインデックスも保持）
-  const sessionToken = generateSessionToken();
-  await env.KV.put(`session:${sessionToken}`, JSON.stringify({ userId: user.id, email: user.email }), {
-    expirationTtl: 30 * 24 * 60 * 60,
-  });
-  await env.KV.put(`user_session:${user.id}:${sessionToken}`, '1', {
-    expirationTtl: 30 * 24 * 60 * 60,
-  });
+  const sessionToken = await createSession(env, user.id, user.email);
 
+  return { success: true, userId: user.id, sessionToken };
+}
+
+export async function loginWithGoogle(env, profile) {
+  const emailVerified = profile?.email_verified === true || profile?.email_verified === 'true';
+  if (!profile?.sub || !profile?.email || !emailVerified) {
+    return { success: false, error: 'Google account must have a verified email address' };
+  }
+
+  let user = await env.DB.prepare(
+    'SELECT id, email, google_sub FROM users WHERE google_sub = ?'
+  )
+    .bind(profile.sub)
+    .first();
+
+  if (!user) {
+    const existingByEmail = await env.DB.prepare(
+      'SELECT id, email, google_sub, email_verified, password_auth_enabled FROM users WHERE email = ?'
+    )
+      .bind(profile.email)
+      .first();
+
+    if (existingByEmail) {
+      if (existingByEmail.google_sub && existingByEmail.google_sub !== profile.sub) {
+        return { success: false, error: 'This email address is already linked to another Google account' };
+      }
+
+      // メール所有が確認されていないパスワードアカウントは、第三者が先回りして登録した可能性がある。
+      // Googleで所有が確認できた時点でパスワードログインと既存セッションを無効化し、乗っ取りを防ぐ。
+      // （パスワードは設定画面またはパスワードリセットから再設定できる）
+      const ownershipUnproven = existingByEmail.email_verified !== 1 || !isEmailVerificationEnabled(env);
+      if (ownershipUnproven && existingByEmail.password_auth_enabled === 1) {
+        await env.DB.prepare(
+          'UPDATE users SET google_sub = ?, email_verified = 1, password_auth_enabled = 0, email_verification_token = NULL, email_verification_expires_at = NULL, password_reset_token = NULL, password_reset_expires_at = NULL WHERE id = ?'
+        )
+          .bind(profile.sub, existingByEmail.id)
+          .run();
+        await revokeAllSessions(env, existingByEmail.id);
+      } else {
+        await env.DB.prepare(
+          'UPDATE users SET google_sub = ?, email_verified = 1 WHERE id = ?'
+        )
+          .bind(profile.sub, existingByEmail.id)
+          .run();
+      }
+
+      user = { id: existingByEmail.id, email: existingByEmail.email, google_sub: profile.sub };
+    } else {
+      const capacityError = await ensureAccountCapacity(env);
+      if (capacityError) {
+        return capacityError;
+      }
+
+      const { hash: passwordHash, salt: passwordSalt } = await hashPassword(generateToken());
+      const now = new Date().toISOString();
+      const result = await env.DB.prepare(
+        'INSERT INTO users (email, password_hash, password_salt, password_hash_version, email_verified, google_sub, password_auth_enabled, created_at) VALUES (?, ?, ?, 2, 1, ?, 0, ?)'
+      )
+        .bind(profile.email, passwordHash, passwordSalt, profile.sub, now)
+        .run();
+
+      user = { id: result.meta.last_row_id, email: profile.email, google_sub: profile.sub };
+    }
+  } else {
+    await env.DB.prepare('UPDATE users SET email_verified = 1 WHERE id = ?')
+      .bind(user.id)
+      .run();
+  }
+
+  const sessionToken = await createSession(env, user.id, user.email);
   return { success: true, userId: user.id, sessionToken };
 }
 
@@ -159,8 +263,13 @@ export async function logout(env, sessionToken) {
 
 // パスワード変更
 export async function changePassword(env, sessionToken, currentPassword, newPassword) {
-  if (!currentPassword || !newPassword) {
-    return { success: false, error: 'Current password and new password are required' };
+  if (!newPassword) {
+    return { success: false, error: 'New password is required' };
+  }
+
+  const passwordError = validateNewPassword(newPassword);
+  if (passwordError) {
+    return passwordError;
   }
 
   const session = await verifySession(env, sessionToken);
@@ -169,13 +278,27 @@ export async function changePassword(env, sessionToken, currentPassword, newPass
   }
 
   const user = await env.DB.prepare(
-    'SELECT id, password_hash, password_salt, password_hash_version FROM users WHERE id = ?'
+    'SELECT id, password_hash, password_salt, password_hash_version, password_auth_enabled FROM users WHERE id = ?'
   )
     .bind(session.userId)
     .first();
 
   if (!user) {
     return { success: false, error: 'User not found' };
+  }
+
+  if (user.password_auth_enabled !== 1) {
+    const { hash: newHash, salt: newSalt } = await hashPassword(newPassword);
+    await env.DB.prepare(
+      'UPDATE users SET password_hash = ?, password_salt = ?, password_hash_version = 2, password_auth_enabled = 1 WHERE id = ?'
+    ).bind(newHash, newSalt, user.id).run();
+    await revokeAllSessions(env, user.id, sessionToken);
+
+    return { success: true, passwordCreated: true };
+  }
+
+  if (!currentPassword) {
+    return { success: false, error: 'Current password is required' };
   }
 
   const valid = user.password_hash_version === 1
@@ -189,23 +312,21 @@ export async function changePassword(env, sessionToken, currentPassword, newPass
   await env.DB.prepare(
     'UPDATE users SET password_hash = ?, password_salt = ?, password_hash_version = 2 WHERE id = ?'
   ).bind(newHash, newSalt, user.id).run();
+  // 操作中の端末以外はログアウトさせる（盗まれたセッションを追い出す）
+  await revokeAllSessions(env, user.id, sessionToken);
 
   return { success: true };
 }
 
 // アカウント削除
 export async function deleteAccount(env, sessionToken, password) {
-  if (!password) {
-    return { success: false, error: 'Password is required' };
-  }
-
   const session = await verifySession(env, sessionToken);
   if (!session) {
     return { success: false, error: 'Unauthorized' };
   }
 
   const user = await env.DB.prepare(
-    'SELECT id, password_hash, password_salt, password_hash_version FROM users WHERE id = ?'
+    'SELECT id, password_hash, password_salt, password_hash_version, password_auth_enabled FROM users WHERE id = ?'
   )
     .bind(session.userId)
     .first();
@@ -214,25 +335,26 @@ export async function deleteAccount(env, sessionToken, password) {
     return { success: false, error: 'User not found' };
   }
 
-  const valid = user.password_hash_version === 1
-    ? await verifySha256Password(password, user.password_hash)
-    : await verifyPassword(password, user.password_hash, user.password_salt);
-  if (!valid) {
-    return { success: false, error: 'Password is incorrect' };
+  if (user.password_auth_enabled === 1) {
+    if (!password) {
+      return { success: false, error: 'Password is required' };
+    }
+
+    const valid = user.password_hash_version === 1
+      ? await verifySha256Password(password, user.password_hash)
+      : await verifyPassword(password, user.password_hash, user.password_salt);
+    if (!valid) {
+      return { success: false, error: 'Password is incorrect' };
+    }
   }
 
-  // user_settings は ON DELETE CASCADE で自動削除される
-  await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id).run();
+  // user_settings は ON DELETE CASCADE で自動削除されるが、last_checked は外部キーがないため明示的に削除する
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM last_checked WHERE user_id = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
+  ]);
 
-  // 全セッションをKVから削除（user_session:userId:* を列挙）
-  const sessions = await env.KV.list({ prefix: `user_session:${user.id}:` });
-  await Promise.all(
-    sessions.keys.map(async ({ name }) => {
-      const token = name.replace(`user_session:${user.id}:`, '');
-      await env.KV.delete(`session:${token}`);
-      await env.KV.delete(name);
-    })
-  );
+  await revokeAllSessions(env, user.id);
 
   return { success: true };
 }
@@ -264,7 +386,7 @@ export async function verifyEmail(env, token) {
   const user = await env.DB.prepare(
     'SELECT id, email, email_verification_token, email_verification_expires_at FROM users WHERE email_verification_token = ?'
   )
-    .bind(token)
+    .bind(await hashToken(token))
     .first();
 
   if (!user) {
@@ -308,7 +430,7 @@ export async function requestPasswordReset(env, email) {
   await env.DB.prepare(
     'UPDATE users SET password_reset_token = ?, password_reset_expires_at = ? WHERE id = ?'
   )
-    .bind(token, expiresAt.toISOString(), user.id)
+    .bind(await hashToken(token), expiresAt.toISOString(), user.id)
     .run();
 
   try {
@@ -330,10 +452,15 @@ export async function resetPassword(env, token, newPassword) {
     return { success: false, error: 'Token and new password are required' };
   }
 
+  const passwordError = validateNewPassword(newPassword);
+  if (passwordError) {
+    return passwordError;
+  }
+
   const user = await env.DB.prepare(
     'SELECT id, password_reset_token, password_reset_expires_at FROM users WHERE password_reset_token = ?'
   )
-    .bind(token)
+    .bind(await hashToken(token))
     .first();
 
   if (!user) {
@@ -350,11 +477,12 @@ export async function resetPassword(env, token, newPassword) {
   const { hash: newHash, salt: newSalt } = await hashPassword(newPassword);
 
   await env.DB.prepare(
-    'UPDATE users SET password_hash = ?, password_salt = ?, password_hash_version = 2, password_reset_token = NULL, password_reset_expires_at = NULL WHERE id = ?'
+    'UPDATE users SET password_hash = ?, password_salt = ?, password_hash_version = 2, password_auth_enabled = 1, password_reset_token = NULL, password_reset_expires_at = NULL WHERE id = ?'
   )
     .bind(newHash, newSalt, user.id)
     .run();
+  // リセットはパスワードを失った（または漏れた）状況で行うため、全端末をログアウトさせる
+  await revokeAllSessions(env, user.id);
 
   return { success: true };
 }
-
