@@ -37,7 +37,21 @@ for f in src/*.js; do node --check "$f"; done    # 構文チェック（自動�
 - `release`: 本番デプロイ用。`master` から PR でマージし、マージ後にデプロイする。直接コミットしない
   - 例外: 実際にデプロイしないと動作検証できない場合（Webhook、OAuth コールバックなど）は `master` からのデプロイを許可する。ただしユーザーの明示的な指示がある場合に限る。検証後は `release` へマージしてデプロイし直すか、問題があれば `release` を再デプロイして戻し、本番と `release` の内容を一致させる
 - 作業ブランチは `master` から切り、`fix/issue-<番号>` / `feature/issue-<番号>` と命名する（Issue がない場合は `fix/<内容>` など）
-- `release` への PR 作成・マージは、明示的に頼まれない限り行わない
+- `release` への PR は下記のデプロイ手順の中でのみ作成する。マージは常にユーザーが GitHub 上で行い、Claude はマージしない
+
+## デプロイ手順
+
+「検証のため master から」などの指定なしに「デプロイして」と頼まれた場合は、次の流れで進める。
+
+1. `git fetch` してから `origin/master` と `origin/release` を比較する（`git log --oneline origin/release..origin/master`）。差分がなければ、その旨を伝えて終了する
+2. 差分があれば `master` → `release` の PR を作成する。PR 本文には含まれるコミットの一覧を書く。`migrations/` に新しいファイルが含まれる場合は、本番 D1 に適用することを本文に明記する
+3. PR の URL を伝え、ユーザーのマージを待つ。待つ間は Monitor ツールで `gh pr view <番号> --json state` を30秒ほどの間隔で確認する
+   - `MERGED` になったら手順4へ進む
+   - `CLOSED`（マージせずにクローズ）になったら、デプロイせずに終了する
+4. `release` をチェックアウトして `git pull` し、そのコードでデプロイする
+   - 新しいマイグレーションがあれば、先に `npx wrangler d1 migrations apply bsky-bridge --remote` を実行する
+   - `npm run deploy` を実行し、結果（成否と、出力された Version ID）を報告する
+   - 終わったら元のブランチに戻す
 
 ## ドキュメント・コミット
 
