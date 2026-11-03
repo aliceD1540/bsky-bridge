@@ -45,6 +45,25 @@ function constantTimeEquals(a, b) {
   return diff === 0;
 }
 
+// Meta Webhook の X-Hub-Signature-256（アプリシークレットによるボディの HMAC-SHA256）を検証
+async function verifyMetaSignature(appSecret, signatureHeader, bodyBytes) {
+  if (!appSecret || !signatureHeader || !signatureHeader.startsWith('sha256=')) return false;
+  try {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(appSecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const mac = await crypto.subtle.sign('HMAC', key, bodyBytes);
+    const expected = 'sha256=' + Array.from(new Uint8Array(mac), (b) => b.toString(16).padStart(2, '0')).join('');
+    return constantTimeEquals(expected, signatureHeader.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 // 署名対象: ボディ + タイムスタンプ（mixi2仕様）
 async function verifyMixi2Signature(publicKeyBase64, signatureBase64, timestamp, bodyBytes) {
   try {
@@ -370,8 +389,20 @@ async function handleRequest(request, env) {
         status: 429, headers: { 'Content-Type': 'application/json' },
       });
     }
+    // 不正なリクエストも試行回数にカウントしたまま 400 を返す（カウンタのリセットに悪用させない）
+    let body;
     try {
-      const { email, password } = await request.json();
+      body = await request.json();
+    } catch {
+      body = null;
+    }
+    const { email, password } = body || {};
+    if (typeof email !== 'string' || typeof password !== 'string') {
+      return new Response(JSON.stringify({ error: 'Invalid request' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    try {
       const result = await login(env, email, password);
       if (result.success) await resetRateLimit(env, `login:${ip}`);
       const headers = { 'Content-Type': 'application/json' };
@@ -381,8 +412,6 @@ async function handleRequest(request, env) {
       return new Response(JSON.stringify(result), { headers });
     } catch (err) {
       console.error('Login error:', err);
-      // サーバー側エラーはユーザーの責任ではないためカウントをリセット
-      await resetRateLimit(env, `login:${ip}`);
       return new Response(JSON.stringify({ error: 'Internal server error' }), {
         status: 500, headers: { 'Content-Type': 'application/json' },
       });
@@ -625,11 +654,29 @@ async function handleRequest(request, env) {
   }
 
   if (path === '/api/webhook/threads' && request.method === 'POST') {
+    if (!env.THREADS_APP_SECRET) {
+      console.error('Threads webhook: THREADS_APP_SECRET is not configured');
+      return new Response(JSON.stringify({ error: 'Webhook is not configured' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // 署名検証は受信したバイト列そのものに対して行う
+    const bodyBytes = new Uint8Array(await request.arrayBuffer());
+    const signature = request.headers.get('X-Hub-Signature-256') || '';
+    if (!await verifyMetaSignature(env.THREADS_APP_SECRET, signature, bodyBytes)) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     try {
       // owner_id は Number.MAX_SAFE_INTEGER を超えるため JSON.parse で精度が失われる。
-      // テキストで受け取り、各 value ブロックの owner_id を正規表現で文字列として抽出する。
-      const rawBody = await request.text();
-      const body = JSON.parse(rawBody);
+      // パース前に数値の owner_id を文字列リテラルに置き換えて、各 value ごとに正しい値を取り出せるようにする。
+      const rawBody = new TextDecoder().decode(bodyBytes);
+      const body = JSON.parse(rawBody.replace(/("owner_id"\s*:\s*)(\d+)/g, '$1"$2"'));
       const results = [];
       // Threads webhook body: { values: [{ field: 'replies', value: { id, permalink, root_post: { owner_id } } }] }
       for (const item of (body.values || [])) {
@@ -644,9 +691,8 @@ async function handleRequest(request, env) {
           await env.KV.put(dedupKey, '1', { expirationTtl: 300 });
         }
 
-        // owner_id を rawBody から正規表現で文字列として抽出（精度ロス防止）
-        const ownerIdMatch = rawBody.match(/"owner_id"\s*:\s*"?(\d+)"?/);
-        const threadsUserId = ownerIdMatch ? ownerIdMatch[1] : String(item.value.root_post?.owner_id);
+        const ownerId = item.value.root_post?.owner_id;
+        const threadsUserId = ownerId ? String(ownerId) : '';
         const postUrl = item.value.permalink;
         if (!threadsUserId || !postUrl) continue;
 
